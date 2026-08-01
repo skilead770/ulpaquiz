@@ -1,0 +1,8 @@
+{
+  "name": "Remix מבצע הלכה יומית - אולפנה",
+  "description": "מערכת ניהול מבצע לימוד הלכה יומית לאולפנה: חידונים יומיים, מנגנון ניקוד אוטומטי, לוח מובילים כיתתי ושכבתי וממשק ניהול.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

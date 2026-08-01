@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "students": {
+      "title": "Students",
+      "description": "Registered students participating in the daily halacha program",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "className": { "type": "string" },
+        "grade": { "type": "string", "enum": ["ט", "י", "יא", "יב"] },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "points": { "type": "number" },
+        "completedDates": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "submissions": { "type": "object" }
+      },
+      "required": ["id", "fullName", "className", "grade", "points"]
+    },
+    "halachot": {
+      "title": "Daily Halachot",
+      "description": "Daily halacha content and quizzes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "title": { "type": "string" },
+        "topic": { "type": "string" },
+        "source": { "type": "string" },
+        "content": { "type": "string" },
+        "questions": { "type": "array" }
+      },
+      "required": ["id", "date", "title", "content", "questions"]
+    }
+  }
+}
