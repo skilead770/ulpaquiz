@@ -13,6 +13,7 @@ import { QuizModal } from './components/QuizModal';
 import { MilestoneModal } from './components/MilestoneModal';
 import { Leaderboards } from './components/Leaderboards';
 import { AdminPanel } from './components/AdminPanel';
+import { RegisterPage } from './components/RegisterPage';
 
 export default function App() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -22,7 +23,7 @@ export default function App() {
 
   const [currentStudentId, setCurrentStudentId] = useState<string | 'admin'>('s1');
   const [selectedDate, setSelectedDate] = useState<string>('2026-07-31');
-  const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'admin'>('study');
+  const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
 
   // Modals state
   const [showQuizModal, setShowQuizModal] = useState(false);
@@ -126,6 +127,14 @@ export default function App() {
             currentStudent={currentStudent}
             leaderboardData={leaderboardData}
             selectedDate={selectedDate}
+          />
+        )}
+
+        {activeTab === 'register' && (
+          <RegisterPage
+            onRegistrationSuccess={loadData}
+            onGoToStudy={() => setActiveTab('study')}
+            students={students}
           />
         )}
 

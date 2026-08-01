@@ -191,6 +191,7 @@ async function startServer() {
       points: Number(s.points) || 0,
       completedDates: Array.isArray(s.completedDates) ? s.completedDates : [],
       submissions: s.submissions || {},
+      status: s.status || 'approved',
     }));
 
     db.students = imported;
@@ -199,7 +200,71 @@ async function startServer() {
     res.json({ success: true, count: imported.length, students: db.students });
   });
 
-  // Add / edit individual student
+  // Self-Registration for Students (Pending Admin Approval)
+  app.post('/api/register', async (req, res) => {
+    const { fullName, className, grade, username, password } = req.body;
+    if (!fullName || !className || !grade || !username || !password) {
+      return res.status(400).json({ error: 'נא למלא את כל שדות החובה להרשמה' });
+    }
+
+    const trimmedUsername = username.trim().toLowerCase();
+    const existingUser = db.students.find(
+      (s) => s.username.trim().toLowerCase() === trimmedUsername
+    );
+    if (existingUser) {
+      return res.status(400).json({ error: 'שם המשתמש כבר תפוס, נא לבחור שם משתמש אחר' });
+    }
+
+    const newStudent: Student = {
+      id: `s-reg-${Date.now()}`,
+      fullName: fullName.trim(),
+      className: className.trim(),
+      grade: grade as GradeType,
+      username: username.trim(),
+      password: password.trim(),
+      points: 0,
+      completedDates: [],
+      submissions: {},
+      status: 'pending',
+      registeredAt: new Date().toISOString(),
+    };
+
+    db.students.push(newStudent);
+    saveDB();
+    await saveStudentToFirestore(newStudent);
+
+    res.json({
+      success: true,
+      message: 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
+      student: newStudent,
+    });
+  });
+
+  // Approve pending student (Admin)
+  app.post('/api/students/:id/approve', async (req, res) => {
+    const student = db.students.find((s) => s.id === req.params.id);
+    if (!student) {
+      return res.status(404).json({ error: 'תלמידה לא נמצאה' });
+    }
+    student.status = 'approved';
+    saveDB();
+    await saveStudentToFirestore(student);
+    res.json({ success: true, student, students: db.students });
+  });
+
+  // Reject / delete pending student (Admin)
+  app.post('/api/students/:id/reject', async (req, res) => {
+    const student = db.students.find((s) => s.id === req.params.id);
+    if (!student) {
+      return res.status(404).json({ error: 'תלמידה לא נמצאה' });
+    }
+    student.status = 'rejected';
+    saveDB();
+    await saveStudentToFirestore(student);
+    res.json({ success: true, student, students: db.students });
+  });
+
+  // Add / edit individual student (Admin)
   app.post('/api/students', async (req, res) => {
     const studentData = req.body;
     if (!studentData.fullName || !studentData.className || !studentData.grade) {
@@ -226,6 +291,7 @@ async function startServer() {
         points: studentData.points || 0,
         completedDates: [],
         submissions: {},
+        status: studentData.status || 'approved',
       };
       db.students.push(targetStudent);
     }

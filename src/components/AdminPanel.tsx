@@ -17,6 +17,11 @@ import {
   Save,
   Wand2,
   AlertCircle,
+  UserPlus,
+  UserCheck,
+  Clock,
+  Check,
+  X,
 } from 'lucide-react';
 import { Student, DailyHalacha, PrizeReportItem, Question, GradeType } from '../types';
 import { ExcelUploader } from './ExcelUploader';
@@ -25,6 +30,10 @@ import {
   saveHalachaApi,
   deleteHalachaApi,
   generateAiHalachaApi,
+  addStudentApi,
+  deleteStudentApi,
+  approveStudentApi,
+  rejectStudentApi,
 } from '../lib/api';
 
 interface AdminPanelProps {
@@ -47,6 +56,97 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Student Search / Filter State
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [studentFilterClass, setStudentFilterClass] = useState<string>('ALL');
+
+  // Manual Add Student State
+  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
+  const [newStudent, setNewStudent] = useState<{
+    fullName: string;
+    grade: GradeType;
+    className: string;
+    username: string;
+    password: string;
+    points: number;
+  }>({
+    fullName: '',
+    grade: 'ט',
+    className: "ט'1",
+    username: '',
+    password: '123',
+    points: 0,
+  });
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+  const [studentError, setStudentError] = useState<string | null>(null);
+
+  const handleAddStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStudent.fullName.trim() || !newStudent.className.trim()) {
+      setStudentError('נא למלא שם מלא וכיתה');
+      return;
+    }
+    setIsSavingStudent(true);
+    setStudentError(null);
+    try {
+      await addStudentApi({
+        fullName: newStudent.fullName.trim(),
+        grade: newStudent.grade,
+        className: newStudent.className.trim(),
+        username: newStudent.username.trim() || undefined,
+        password: newStudent.password.trim() || '123',
+        points: Number(newStudent.points) || 0,
+      });
+      setIsAddStudentModalOpen(false);
+      setNewStudent({
+        fullName: '',
+        grade: 'ט',
+        className: "ט'1",
+        username: '',
+        password: '123',
+        points: 0,
+      });
+      onRefreshData();
+    } catch (err: any) {
+      console.error(err);
+      setStudentError(err?.message || 'אירעה שגיאה בהוספת התלמידה');
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId: string, studentName: string) => {
+    if (confirm(`האם למחוק את התלמידה "${studentName}"?`)) {
+      try {
+        await deleteStudentApi(studentId);
+        onRefreshData();
+      } catch (err) {
+        console.error(err);
+        alert('נכשלה מחיקת התלמידה');
+      }
+    }
+  };
+
+  const handleApproveStudent = async (studentId: string) => {
+    try {
+      await approveStudentApi(studentId);
+      onRefreshData();
+    } catch (err) {
+      console.error(err);
+      alert('נכשל אישור התלמידה');
+    }
+  };
+
+  const handleRejectStudent = async (studentId: string, studentName: string) => {
+    if (confirm(`האם לדחות ולמחוק את בקשת ההרשמה של "${studentName}"?`)) {
+      try {
+        await rejectStudentApi(studentId);
+        onRefreshData();
+      } catch (err) {
+        console.error(err);
+        alert('נכשלה דחיית התלמידה');
+      }
+    }
+  };
+
+  const pendingStudents = students.filter((s) => s.status === 'pending');
 
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState('');
@@ -188,6 +288,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>תלמידות ואקסל</span>
+            {pendingStudents.length > 0 && (
+              <span className="bg-rose-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full animate-pulse">
+                {pendingStudents.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -520,6 +625,72 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ==================================================== */}
       {activeAdminTab === 'students' && (
         <div className="space-y-6">
+          {/* Pending Registrations Card */}
+          {pendingStudents.length > 0 && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-3xl p-6 border-2 border-amber-400 shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2.5 bg-amber-600 text-white rounded-2xl shadow-xs">
+                    <Clock className="w-5 h-5 animate-spin" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                      <span>בקשות הרשמה הממתינות לאישור</span>
+                      <span className="bg-rose-500 text-white font-extrabold text-xs px-2.5 py-0.5 rounded-full">
+                        {pendingStudents.length}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-amber-800">
+                      תלמידות שנרשמו עצמאית במערכת וממתינות לאישורך כדי להתחיל ללמוד ולהופיע בלוח המובילים
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {pendingStudents.map((s) => (
+                  <div
+                    key={s.id}
+                    className="bg-white p-4 rounded-2xl border border-amber-300 shadow-xs flex flex-col justify-between space-y-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-slate-900 text-sm">{s.fullName}</span>
+                        <span className="bg-amber-100 text-amber-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                          כיתה {s.className}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-mono">
+                        שם משתמש: <strong className="text-amber-900">{s.username}</strong>
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        שכבה {s.grade}' {s.registeredAt ? `• ${new Date(s.registeredAt).toLocaleDateString('he-IL')}` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => handleApproveStudent(s.id)}
+                        className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>אישור הרשמה</span>
+                      </button>
+                      <button
+                        onClick={() => handleRejectStudent(s.id, s.fullName)}
+                        className="py-2 px-3 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        title="דחה הרשמה"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>דחייה</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <ExcelUploader onStudentsLoaded={handleExcelImport} />
 
           {/* Student Search & Table */}
@@ -530,12 +701,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   רשימת התלמידות הרשומות ({students.length})
                 </h3>
                 <p className="text-xs text-amber-800">
-                  סינון, חיפוש ובדק של מאזן הניקוד האישי.
+                  סינון, חיפוש, הוספת תלמידות בודדות ובדק ניקוד.
                 </p>
               </div>
 
-              {/* Filters */}
-              <div className="flex items-center gap-2">
+              {/* Filters & Add Manual Button */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setIsAddStudentModalOpen(true)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>הוספת תלמידה ידנית</span>
+                </button>
+
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
                   <input
@@ -571,8 +750,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <th className="p-3">כיתה</th>
                     <th className="p-3">שכבה</th>
                     <th className="p-3">שם משתמש</th>
+                    <th className="p-3">סטטוס הרשמה</th>
                     <th className="p-3">ניקוד מצטבר</th>
                     <th className="p-3">חידונים שהושלמו</th>
+                    <th className="p-3 text-center">פעולות</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-amber-100">
@@ -582,11 +763,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <td className="p-3 font-semibold text-amber-900">{s.className}</td>
                       <td className="p-3 font-semibold text-slate-700">{s.grade}'</td>
                       <td className="p-3 text-slate-500 font-mono">{s.username}</td>
+                      <td className="p-3">
+                        {s.status === 'pending' ? (
+                          <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                            <Clock className="w-3 h-3 text-amber-700" />
+                            ממתינה לאישור
+                          </span>
+                        ) : s.status === 'rejected' ? (
+                          <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            נגנזה
+                          </span>
+                        ) : (
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                            <UserCheck className="w-3 h-3 text-emerald-600" />
+                            מאושרת
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 font-black text-amber-950 font-['Heebo']">{s.points} נק'</td>
                       <td className="p-3">
                         <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                           {s.completedDates.length} ימים
                         </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {s.status === 'pending' && (
+                            <button
+                              onClick={() => handleApproveStudent(s.id)}
+                              className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 transition-colors"
+                              title="אישור תלמידה"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteStudent(s.id, s.fullName)}
+                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                            title="מחק תלמידה"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -594,6 +812,143 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Add Student Modal */}
+          {isAddStudentModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-6 space-y-5 my-8">
+                <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+                      <UserPlus className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-lg font-extrabold text-amber-950 font-['Heebo']">
+                      הוספת תלמידה חדשה
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setIsAddStudentModalOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddStudent} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      שם מלא <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="לדוגמה: תמר שפירא"
+                      value={newStudent.fullName}
+                      onChange={(e) => setNewStudent({ ...newStudent, fullName: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        שכבה <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={newStudent.grade}
+                        onChange={(e) => setNewStudent({ ...newStudent, grade: e.target.value as GradeType })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      >
+                        <option value="ט">שכבת ט'</option>
+                        <option value="י">שכבת י'</option>
+                        <option value="יא">שכבת יא'</option>
+                        <option value="יב">שכבת יב'</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="לדוגמה: ט'1"
+                        value={newStudent.className}
+                        onChange={(e) => setNewStudent({ ...newStudent, className: e.target.value })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        שם משתמש
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="ייווצר אוטומטית אם ריק"
+                        value={newStudent.username}
+                        onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        סיסמה ראשונית
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="123"
+                        value={newStudent.password}
+                        onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ניקוד התחלתי במבצע
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newStudent.points}
+                      onChange={(e) => setNewStudent({ ...newStudent, points: Number(e.target.value) })}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  {studentError && (
+                    <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                      {studentError}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddStudentModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingStudent}
+                      className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{isSavingStudent ? 'שומר...' : 'שמור תלמידה'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

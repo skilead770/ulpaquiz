@@ -36,6 +36,8 @@ export interface Student {
   points: number; // cumulative total points
   completedDates: string[]; // YYYY-MM-DD
   submissions: Record<string, QuizSubmission>;
+  status?: 'approved' | 'pending' | 'rejected';
+  registeredAt?: string;
 }
 
 export interface ClassLeaderboardItem {

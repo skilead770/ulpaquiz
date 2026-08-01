@@ -10,6 +10,8 @@ import {
   Sparkles,
   ShieldCheck,
   CheckCircle2,
+  UserPlus,
+  Clock,
 } from 'lucide-react';
 import { Student } from '../types';
 
@@ -17,8 +19,8 @@ interface NavbarProps {
   students: Student[];
   currentStudentId: string | 'admin';
   onSelectUser: (id: string | 'admin') => void;
-  activeTab: 'study' | 'leaderboard' | 'admin';
-  onChangeTab: (tab: 'study' | 'leaderboard' | 'admin') => void;
+  activeTab: 'study' | 'leaderboard' | 'register' | 'admin';
+  onChangeTab: (tab: 'study' | 'leaderboard' | 'register' | 'admin') => void;
   onResetDemo: () => void;
 }
 
@@ -66,7 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
               <p className="text-xs text-amber-800/80 font-medium hidden sm:block">
-                אולפנא • לימוד יומי מתוך "אהלי הלכה" (הרב מאיר בראלי, בנשיאות הרב יעקב אריאל)
+                אולפנא • לימוד יומי מתוך סדרת "אהלי הלכה"
               </p>
             </div>
           </div>
@@ -95,6 +97,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Trophy className="w-4 h-4" />
               <span>לוח מובילים</span>
+            </button>
+
+            <button
+              onClick={() => onChangeTab('register')}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'register'
+                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                  : 'text-amber-900/80 hover:bg-amber-100/70 hover:text-amber-950'
+              }`}
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>הרשמה למערכת</span>
             </button>
 
             <button
@@ -157,6 +171,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="max-h-60 overflow-y-auto py-1">
                   {students.map((student) => {
                     const isSelected = student.id === currentStudentId;
+                    const isPending = student.status === 'pending';
                     return (
                       <button
                         key={student.id}
@@ -178,9 +193,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                            {student.points} נק'
-                          </span>
+                          {isPending ? (
+                            <span className="bg-amber-200 text-amber-900 text-[9px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5">
+                              <Clock className="w-2.5 h-2.5" />
+                              ממתינה
+                            </span>
+                          ) : (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                              {student.points} נק'
+                            </span>
+                          )}
                           {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-600" />}
                         </div>
                       </button>
@@ -188,7 +210,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   })}
                 </div>
 
-                <div className="border-t border-amber-100 pt-1 mt-1 px-1">
+                <div className="border-t border-amber-100 pt-1 mt-1 px-1 space-y-1">
+                  <button
+                    onClick={() => {
+                      onChangeTab('register');
+                      setShowUserDropdown(false);
+                    }}
+                    className="w-full text-right px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-amber-600" />
+                      <span>אין לך משתמש? לחצי להרשמה</span>
+                    </div>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">חדש</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       onSelectUser('admin');

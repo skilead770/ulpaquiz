@@ -67,6 +67,26 @@ export async function bulkImportStudentsApi(students: Partial<Student>[]) {
   return data;
 }
 
+export async function addStudentApi(student: Partial<Student>) {
+  const res = await fetch('/api/students', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(student),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'נכשלה הוספת התלמידה');
+  return data;
+}
+
+export async function deleteStudentApi(id: string) {
+  const res = await fetch(`/api/students/${id}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'נכשלה מחיקת התלמידה');
+  return data;
+}
+
 export async function saveHalachaApi(halacha: DailyHalacha) {
   const res = await fetch('/api/halachot', {
     method: 'POST',
@@ -95,6 +115,41 @@ export async function generateAiHalachaApi(topic: string, date: string) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'נכשלה יצירת ההלכה');
+  return data;
+}
+
+export async function registerStudentApi(studentData: {
+  fullName: string;
+  grade: string;
+  className: string;
+  username: string;
+  password?: string;
+}) {
+  const res = await fetch('/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(studentData),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'נכשלה הרשמת התלמידה');
+  return data;
+}
+
+export async function approveStudentApi(id: string) {
+  const res = await fetch(`/api/students/${id}/approve`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'נכשל אישור התלמידה');
+  return data;
+}
+
+export async function rejectStudentApi(id: string) {
+  const res = await fetch(`/api/students/${id}/reject`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'נכשלה דחיית התלמידה');
   return data;
 }
 

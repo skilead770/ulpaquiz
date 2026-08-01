@@ -12,6 +12,8 @@ import {
   GraduationCap,
   BookmarkCheck,
   HelpCircle,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
 import { Student, DailyHalacha } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
@@ -122,6 +124,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Pending Approval Banner */}
+      {student.status === 'pending' && (
+        <div className="bg-gradient-to-r from-amber-100 via-amber-50 to-orange-100 border-2 border-amber-400 text-amber-950 p-5 rounded-3xl shadow-md flex items-center gap-4 animate-in slide-in-from-top-2">
+          <div className="p-3 bg-amber-600 text-white rounded-2xl shrink-0 shadow-xs">
+            <Clock className="w-6 h-6 animate-spin" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="font-extrabold text-base text-amber-950 font-['Heebo'] flex items-center gap-2">
+              <span>בקשת ההרשמה שלך נקלטה וממתינה לאישור המנהל ⏳</span>
+            </h4>
+            <p className="text-xs text-amber-900 font-medium leading-relaxed">
+              תוכלי לעיין בהלכות היומיות כבר עכשיו. ברגע שמנהלת האולפנה תאשר את הרשמתך, כפתור החידון יופעל ותוכלי להתחיל לצבור נקודות!
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Date Navigator Bar */}
       <div className="bg-white rounded-2xl p-4 shadow-xs border border-amber-200/80 flex flex-wrap items-center justify-between gap-4">
