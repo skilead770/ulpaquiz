@@ -1,4 +1,37 @@
-import { DailyHalacha, Student, PrizeMilestone } from '../types';
+import { DailyHalacha, Student, PrizeMilestone, Invitation } from '../types';
+
+export const INITIAL_INVITATIONS: Invitation[] = [
+  {
+    id: 'inv-1',
+    code: 'ULPA-2026-T1',
+    className: "ט'1",
+    grade: 'ט',
+    maxUses: 50,
+    usedCount: 2,
+    createdAt: '2026-08-01',
+    active: true,
+  },
+  {
+    id: 'inv-2',
+    code: 'ULPA-2026-Y1',
+    className: "י'1",
+    grade: 'י',
+    maxUses: 50,
+    usedCount: 1,
+    createdAt: '2026-08-01',
+    active: true,
+  },
+  {
+    id: 'inv-3',
+    code: 'ULPA-GENERAL',
+    className: 'כללית',
+    grade: 'ט',
+    maxUses: 200,
+    usedCount: 0,
+    createdAt: '2026-08-01',
+    active: true,
+  },
+];
 
 export const DEFAULT_PRIZE_MILESTONES: PrizeMilestone[] = [
   {

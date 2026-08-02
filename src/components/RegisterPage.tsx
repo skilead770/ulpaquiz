@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight, Key, Check } from 'lucide-react';
 import { GradeType, Student } from '../types';
-import { registerStudentApi } from '../lib/api';
+import { registerStudentApi, validateInvitationCodeApi } from '../lib/api';
 
 interface RegisterPageProps {
   onRegistrationSuccess: () => void;
@@ -19,10 +19,59 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [className, setClassName] = useState("ט'1");
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('123');
+  const [invitationCode, setInvitationCode] = useState('');
+  const [invitationValidInfo, setInvitationValidInfo] = useState<{
+    valid: boolean;
+    className?: string;
+    grade?: GradeType;
+    message?: string;
+  } | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registeredStudent, setRegisteredStudent] = useState<Student | null>(null);
+  const [isAutoApprovedResult, setIsAutoApprovedResult] = useState(false);
+
+  // Read invite query param from URL if present
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteParam = params.get('invite') || params.get('code');
+    if (inviteParam) {
+      setInvitationCode(inviteParam.toUpperCase());
+      checkInviteCode(inviteParam.toUpperCase());
+    }
+  }, []);
+
+  const checkInviteCode = async (code: string) => {
+    if (!code.trim()) {
+      setInvitationValidInfo(null);
+      return;
+    }
+    try {
+      const res = await validateInvitationCodeApi(code.trim());
+      if (res.valid && res.invitation) {
+        setInvitationValidInfo({
+          valid: true,
+          className: res.invitation.className,
+          grade: res.invitation.grade,
+          message: 'קוד הזמנה תקין! הרשמתך תאושר אוטומטית ללא ממתין.',
+        });
+        if (res.invitation.className && res.invitation.className !== 'כללית') {
+          setClassName(res.invitation.className);
+        }
+        if (res.invitation.grade) {
+          setGrade(res.invitation.grade);
+        }
+      } else {
+        setInvitationValidInfo({
+          valid: false,
+          message: res.error || 'קוד הזמנה אינו בתוקף',
+        });
+      }
+    } catch (e) {
+      setInvitationValidInfo(null);
+    }
+  };
 
   // Status Check State
   const [checkUsername, setCheckUsername] = useState('');
@@ -49,9 +98,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         className: className.trim(),
         username: username.trim(),
         password: password.trim() || '123',
+        invitationCode: invitationCode.trim() || undefined,
       });
 
       setRegisteredStudent(res.student);
+      setIsAutoApprovedResult(!!res.autoApproved);
       onRegistrationSuccess();
     } catch (err: any) {
       console.error(err);
@@ -114,12 +165,16 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         /* Success Card */
         <div className="bg-white p-8 rounded-3xl border border-emerald-200 shadow-xl text-center space-y-6 animate-in zoom-in-95">
           <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-            <Clock className="w-10 h-10 animate-pulse" />
+            {isAutoApprovedResult ? (
+              <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+            ) : (
+              <Clock className="w-10 h-10 animate-pulse" />
+            )}
           </div>
 
           <div className="space-y-2">
             <h3 className="text-2xl font-extrabold text-slate-900 font-['Heebo']">
-              בקשת ההרשמה נקלטה בהצלחה!
+              {isAutoApprovedResult ? 'הרשמתך אושרה בהצלחה!' : 'בקשת ההרשמה נקלטה בהצלחה!'}
             </h3>
             <p className="text-sm text-slate-600 max-w-md mx-auto">
               תודה <span className="font-bold text-amber-800">{registeredStudent.fullName}</span> (כיתה {registeredStudent.className})!
@@ -128,10 +183,23 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
           <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 text-right max-w-md mx-auto space-y-2 text-xs text-amber-950 font-semibold">
             <div className="flex items-center justify-between border-b border-amber-200/80 pb-2">
-              <span>סטטוס בקשה:</span>
-              <span className="bg-amber-200/90 text-amber-900 px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                ממתין לאישור מנהל
+              <span>סטטוס הרשמה:</span>
+              <span className={`px-2.5 py-1 rounded-full font-bold flex items-center gap-1 ${
+                isAutoApprovedResult
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : 'bg-amber-200/90 text-amber-900'
+              }`}>
+                {isAutoApprovedResult ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    מאושרת (באמצעות קוד הזמנה)
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-3.5 h-3.5" />
+                    ממתין לאישור מנהל
+                  </>
+                )}
               </span>
             </div>
             <div className="flex items-center justify-between pt-1">
@@ -144,8 +212,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             </div>
           </div>
 
-          <div className="p-4 bg-amber-100/60 rounded-2xl border border-amber-200 text-xs text-amber-900 text-center font-medium">
-            💡 ברגע שמנהלת האולפנה תאשר את הבקשה, השם שלך יופיע ברשימת התלמידות ותוכלי להתחיל ללמוד ולצבור נקודות!
+          <div className={`p-4 rounded-2xl border text-xs text-center font-medium ${
+            isAutoApprovedResult
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-amber-100/60 border-amber-200 text-amber-900'
+          }`}>
+            {isAutoApprovedResult
+              ? '🎉 איזה יופי! ההרשמה שלך אושרה מידית. כעת תוכל להיכנס ולפתור את החידון היומי ולהוביל את הלוח!'
+              : '💡 ברגע שמנהלת האולפנה תאשר את הבקשה, השם שלך יופיע ברשימת התלמידות ותוכלי להתחיל ללמוד ולצבור נקודות!'}
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -154,6 +228,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 setRegisteredStudent(null);
                 setFullName('');
                 setUsername('');
+                setInvitationCode('');
+                setInvitationValidInfo(null);
               }}
               className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
             >
@@ -174,6 +250,40 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 bg-white p-6 sm:p-8 rounded-3xl border border-amber-200 shadow-xl space-y-6">
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Optional Invitation Code Box */}
+              <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200/90 space-y-2">
+                <label className="block text-xs font-extrabold text-amber-950 flex items-center gap-1.5">
+                  <Key className="w-4 h-4 text-amber-700" />
+                  <span>קוד הזמנה לכיתה/שכבה (רשות)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="לדוגמה: ULPA-2026-T1"
+                    value={invitationCode}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setInvitationCode(val);
+                      checkInviteCode(val);
+                    }}
+                    className="flex-1 p-2.5 rounded-xl border border-amber-300 bg-white text-xs font-bold font-mono tracking-wider text-amber-900 uppercase focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  />
+                  {invitationValidInfo?.valid && (
+                    <span className="p-2 bg-emerald-100 text-emerald-700 rounded-xl flex items-center gap-1 text-xs font-bold border border-emerald-200">
+                      <Check className="w-4 h-4" />
+                      <span>תקף</span>
+                    </span>
+                  )}
+                </div>
+                {invitationValidInfo && (
+                  <p className={`text-xs font-semibold ${
+                    invitationValidInfo.valid ? 'text-emerald-700' : 'text-rose-600'
+                  }`}>
+                    {invitationValidInfo.message}
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
                   שם מלא של התלמידה <span className="text-rose-500">*</span>

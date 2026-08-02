@@ -14,10 +14,12 @@ import {
   StudentLeaderboardItem,
   PrizeReportItem,
   GradeType,
+  Invitation,
 } from './src/types';
 import {
   INITIAL_STUDENTS,
   INITIAL_HALACHOT,
+  INITIAL_INVITATIONS,
   DEFAULT_PRIZE_MILESTONES,
 } from './src/data/seedData';
 
@@ -29,12 +31,14 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 interface DatabaseSchema {
   students: Student[];
   halachot: DailyHalacha[];
+  invitations: Invitation[];
 }
 
 // In-memory cache synced with db.json and Firestore
 let db: DatabaseSchema = {
   students: [],
   halachot: [],
+  invitations: [],
 };
 
 // Ensure data directory and file exist
@@ -46,13 +50,22 @@ function initDB() {
     try {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
       db = JSON.parse(content);
+      if (!db.invitations) db.invitations = [...INITIAL_INVITATIONS];
     } catch (e) {
       console.error('Error reading DB_FILE, resetting to seed data', e);
-      db = { students: [...INITIAL_STUDENTS], halachot: [...INITIAL_HALACHOT] };
+      db = {
+        students: [...INITIAL_STUDENTS],
+        halachot: [...INITIAL_HALACHOT],
+        invitations: [...INITIAL_INVITATIONS],
+      };
       saveDB();
     }
   } else {
-    db = { students: [...INITIAL_STUDENTS], halachot: [...INITIAL_HALACHOT] };
+    db = {
+      students: [...INITIAL_STUDENTS],
+      halachot: [...INITIAL_HALACHOT],
+      invitations: [...INITIAL_INVITATIONS],
+    };
     saveDB();
   }
 }
@@ -72,17 +85,22 @@ async function initFirestore() {
   try {
     const studentsSnap = await firestoreDb.collection('students').get();
     const halachotSnap = await firestoreDb.collection('halachot').get();
+    const invitationsSnap = await firestoreDb.collection('invitations').get();
 
     if (!studentsSnap.empty && !halachotSnap.empty) {
-      console.log(`[Firestore] Loaded ${studentsSnap.size} students and ${halachotSnap.size} halachot from Firestore`);
+      console.log(`[Firestore] Loaded ${studentsSnap.size} students, ${halachotSnap.size} halachot, ${invitationsSnap.size} invitations from Firestore`);
       const loadedStudents: Student[] = [];
       studentsSnap.forEach((doc) => loadedStudents.push(doc.data() as Student));
 
       const loadedHalachot: DailyHalacha[] = [];
       halachotSnap.forEach((doc) => loadedHalachot.push(doc.data() as DailyHalacha));
 
+      const loadedInvitations: Invitation[] = [];
+      invitationsSnap.forEach((doc) => loadedInvitations.push(doc.data() as Invitation));
+
       db.students = loadedStudents;
       db.halachot = loadedHalachot;
+      db.invitations = loadedInvitations.length > 0 ? loadedInvitations : [...INITIAL_INVITATIONS];
       saveDB();
     } else {
       console.log('[Firestore] Firestore collections empty, seeding initial data...');
@@ -104,6 +122,10 @@ async function seedFirestore() {
     db.halachot.forEach((halacha) => {
       const ref = firestoreDb!.collection('halachot').doc(halacha.id);
       batch.set(ref, halacha);
+    });
+    (db.invitations || INITIAL_INVITATIONS).forEach((inv) => {
+      const ref = firestoreDb!.collection('invitations').doc(inv.id);
+      batch.set(ref, inv);
     });
     await batch.commit();
     console.log('[Firestore] Successfully seeded Firestore with initial data!');
@@ -145,6 +167,24 @@ async function deleteHalachaFromFirestore(id: string) {
     await firestoreDb.collection('halachot').doc(id).delete();
   } catch (err) {
     console.error(`[Firestore] Error deleting halacha ${id}:`, err);
+  }
+}
+
+async function saveInvitationToFirestore(invitation: Invitation) {
+  if (!firestoreDb) return;
+  try {
+    await firestoreDb.collection('invitations').doc(invitation.id).set(invitation);
+  } catch (err) {
+    console.error(`[Firestore] Error saving invitation ${invitation.id}:`, err);
+  }
+}
+
+async function deleteInvitationFromFirestore(id: string) {
+  if (!firestoreDb) return;
+  try {
+    await firestoreDb.collection('invitations').doc(id).delete();
+  } catch (err) {
+    console.error(`[Firestore] Error deleting invitation ${id}:`, err);
   }
 }
 
@@ -200,9 +240,77 @@ async function startServer() {
     res.json({ success: true, count: imported.length, students: db.students });
   });
 
-  // Self-Registration for Students (Pending Admin Approval)
+  // Invitations Management API
+  app.get('/api/invitations', (req, res) => {
+    res.json(db.invitations || []);
+  });
+
+  app.get('/api/invitations/validate/:code', (req, res) => {
+    const code = req.params.code.trim().toUpperCase();
+    const invitation = (db.invitations || []).find(
+      (i) => i.code.trim().toUpperCase() === code && i.active
+    );
+    if (!invitation) {
+      return res.status(404).json({ valid: false, error: 'קוד הזמנה לא קיים או שאינו פעיל' });
+    }
+    if (invitation.maxUses > 0 && invitation.usedCount >= invitation.maxUses) {
+      return res.status(400).json({ valid: false, error: 'קוד ההזמנה הגיע למכסת השימושים המרבית' });
+    }
+    res.json({ valid: true, invitation });
+  });
+
+  app.post('/api/invitations', async (req, res) => {
+    const { className, grade, maxUses, code } = req.body;
+    if (!className || !grade || !code) {
+      return res.status(400).json({ error: 'נא למלא כיתה, שכבה וקוד הזמנה' });
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    let invitation: Invitation;
+
+    const existingIdx = (db.invitations || []).findIndex(
+      (i) => i.code.trim().toUpperCase() === cleanCode
+    );
+
+    if (existingIdx >= 0) {
+      invitation = {
+        ...db.invitations[existingIdx],
+        className: className.trim(),
+        grade: grade as GradeType,
+        maxUses: Number(maxUses) || 50,
+      };
+      db.invitations[existingIdx] = invitation;
+    } else {
+      invitation = {
+        id: `inv-${Date.now()}`,
+        code: cleanCode,
+        className: className.trim(),
+        grade: grade as GradeType,
+        maxUses: Number(maxUses) || 50,
+        usedCount: 0,
+        createdAt: new Date().toISOString().split('T')[0],
+        active: true,
+      };
+      if (!db.invitations) db.invitations = [];
+      db.invitations.unshift(invitation);
+    }
+
+    saveDB();
+    await saveInvitationToFirestore(invitation);
+    res.json({ success: true, invitation, invitations: db.invitations });
+  });
+
+  app.delete('/api/invitations/:id', async (req, res) => {
+    const id = req.params.id;
+    db.invitations = (db.invitations || []).filter((i) => i.id !== id);
+    saveDB();
+    await deleteInvitationFromFirestore(id);
+    res.json({ success: true, invitations: db.invitations });
+  });
+
+  // Self-Registration for Students (Pending Admin Approval or Auto-Approved via Invitation)
   app.post('/api/register', async (req, res) => {
-    const { fullName, className, grade, username, password } = req.body;
+    const { fullName, className, grade, username, password, invitationCode } = req.body;
     if (!fullName || !className || !grade || !username || !password) {
       return res.status(400).json({ error: 'נא למלא את כל שדות החובה להרשמה' });
     }
@@ -215,6 +323,24 @@ async function startServer() {
       return res.status(400).json({ error: 'שם המשתמש כבר תפוס, נא לבחור שם משתמש אחר' });
     }
 
+    let isAutoApproved = false;
+    let matchedInvitation: Invitation | undefined;
+
+    if (invitationCode) {
+      const cleanCode = invitationCode.trim().toUpperCase();
+      matchedInvitation = (db.invitations || []).find(
+        (i) => i.code.trim().toUpperCase() === cleanCode && i.active
+      );
+      if (matchedInvitation) {
+        if (matchedInvitation.maxUses === 0 || matchedInvitation.usedCount < matchedInvitation.maxUses) {
+          isAutoApproved = true;
+          matchedInvitation.usedCount += 1;
+          saveDB();
+          await saveInvitationToFirestore(matchedInvitation);
+        }
+      }
+    }
+
     const newStudent: Student = {
       id: `s-reg-${Date.now()}`,
       fullName: fullName.trim(),
@@ -225,8 +351,9 @@ async function startServer() {
       points: 0,
       completedDates: [],
       submissions: {},
-      status: 'pending',
+      status: isAutoApproved ? 'approved' : 'pending',
       registeredAt: new Date().toISOString(),
+      invitationCode: invitationCode ? invitationCode.trim().toUpperCase() : undefined,
     };
 
     db.students.push(newStudent);
@@ -235,7 +362,10 @@ async function startServer() {
 
     res.json({
       success: true,
-      message: 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
+      autoApproved: isAutoApproved,
+      message: isAutoApproved
+        ? 'הרשמתך אושרה אוטומטית באמצעות קוד ההזמנה! הרי אנו מברכים אותך בהצטרפות למבצע.'
+        : 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
       student: newStudent,
     });
   });
@@ -666,6 +796,7 @@ async function startServer() {
     db = {
       students: JSON.parse(JSON.stringify(INITIAL_STUDENTS)),
       halachot: JSON.parse(JSON.stringify(INITIAL_HALACHOT)),
+      invitations: JSON.parse(JSON.stringify(INITIAL_INVITATIONS)),
     };
     saveDB();
     await seedFirestore();

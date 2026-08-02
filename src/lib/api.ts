@@ -18,10 +18,12 @@ import {
   StudentLeaderboardItem,
   GradeType,
   QuizSubmission,
+  Invitation,
 } from '../types';
 import {
   INITIAL_STUDENTS,
   INITIAL_HALACHOT,
+  INITIAL_INVITATIONS,
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
 
@@ -496,12 +498,119 @@ export async function generateAiHalachaApi(topic: string, date: string) {
   return res.json();
 }
 
+export async function fetchInvitationsApi(): Promise<Invitation[]> {
+  try {
+    const res = await fetch('/api/invitations');
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to direct Firestore for fetchInvitationsApi');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, 'invitations'));
+    if (!snap.empty) {
+      const list: Invitation[] = [];
+      snap.forEach((d) => list.push(d.data() as Invitation));
+      return list;
+    }
+    for (const inv of INITIAL_INVITATIONS) {
+      await setDoc(doc(db, 'invitations', inv.id), inv);
+    }
+    return INITIAL_INVITATIONS;
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error fetching invitations:', err);
+    return INITIAL_INVITATIONS;
+  }
+}
+
+export async function createInvitationApi(invitationData: {
+  className: string;
+  grade: GradeType;
+  maxUses: number;
+  code: string;
+}) {
+  try {
+    const res = await fetch('/api/invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invitationData),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to direct Firestore for createInvitationApi');
+  }
+
+  const cleanCode = invitationData.code.trim().toUpperCase();
+  const inv: Invitation = {
+    id: `inv-${Date.now()}`,
+    code: cleanCode,
+    className: invitationData.className.trim(),
+    grade: invitationData.grade,
+    maxUses: Number(invitationData.maxUses) || 50,
+    usedCount: 0,
+    createdAt: new Date().toISOString().split('T')[0],
+    active: true,
+  };
+
+  await setDoc(doc(db, 'invitations', inv.id), inv);
+  const invitations = await fetchInvitationsApi();
+  return { success: true, invitation: inv, invitations };
+}
+
+export async function deleteInvitationApi(id: string) {
+  try {
+    const res = await fetch(`/api/invitations/${id}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to direct Firestore for deleteInvitationApi');
+  }
+
+  await deleteDoc(doc(db, 'invitations', id));
+  const invitations = await fetchInvitationsApi();
+  return { success: true, invitations };
+}
+
+export async function validateInvitationCodeApi(code: string): Promise<{ valid: boolean; invitation?: Invitation; error?: string }> {
+  try {
+    const res = await fetch(`/api/invitations/validate/${encodeURIComponent(code)}`);
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    } else {
+      const data = await parseJsonResponse(res).catch(() => ({ valid: false }));
+      return data;
+    }
+  } catch (e) {
+    console.info('[API] Falling back to direct Firestore for validateInvitationCodeApi');
+  }
+
+  const invitations = await fetchInvitationsApi();
+  const cleanCode = code.trim().toUpperCase();
+  const inv = invitations.find((i) => i.code.trim().toUpperCase() === cleanCode && i.active);
+
+  if (!inv) {
+    return { valid: false, error: 'קוד הזמנה לא קיים או שאינו פעיל' };
+  }
+  if (inv.maxUses > 0 && inv.usedCount >= inv.maxUses) {
+    return { valid: false, error: 'קוד ההזמנה הגיע למכסת השימושים המרבית' };
+  }
+  return { valid: true, invitation: inv };
+}
+
 export async function registerStudentApi(studentData: {
   fullName: string;
   grade: string;
   className: string;
   username: string;
   password?: string;
+  invitationCode?: string;
 }) {
   try {
     const res = await fetch('/api/register', {
@@ -522,6 +631,17 @@ export async function registerStudentApi(studentData: {
     throw new Error('שם המשתמש כבר תפוס, נא לבחור שם משתמש אחר');
   }
 
+  let isAutoApproved = false;
+  if (studentData.invitationCode) {
+    const valRes = await validateInvitationCodeApi(studentData.invitationCode);
+    if (valRes.valid && valRes.invitation) {
+      isAutoApproved = true;
+      const inv = valRes.invitation;
+      inv.usedCount += 1;
+      await setDoc(doc(db, 'invitations', inv.id), inv);
+    }
+  }
+
   const newStudent: Student = {
     id: `s-reg-${Date.now()}`,
     fullName: studentData.fullName.trim(),
@@ -532,15 +652,19 @@ export async function registerStudentApi(studentData: {
     points: 0,
     completedDates: [],
     submissions: {},
-    status: 'pending',
+    status: isAutoApproved ? 'approved' : 'pending',
     registeredAt: new Date().toISOString(),
+    invitationCode: studentData.invitationCode ? studentData.invitationCode.trim().toUpperCase() : undefined,
   };
 
   await setDoc(doc(db, 'students', newStudent.id), newStudent);
 
   return {
     success: true,
-    message: 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
+    autoApproved: isAutoApproved,
+    message: isAutoApproved
+      ? 'הרשמתך אושרה אוטומטית באמצעות קוד ההזמנה! הרי אנו מברכים אותך בהצטרפות למבצע.'
+      : 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
     student: newStudent,
   };
 }

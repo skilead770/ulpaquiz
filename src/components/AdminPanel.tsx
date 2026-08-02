@@ -23,7 +23,7 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { Student, DailyHalacha, PrizeReportItem, Question, GradeType } from '../types';
+import { Student, DailyHalacha, PrizeReportItem, Question, GradeType, Invitation } from '../types';
 import { ExcelUploader } from './ExcelUploader';
 import {
   bulkImportStudentsApi,
@@ -34,7 +34,11 @@ import {
   deleteStudentApi,
   approveStudentApi,
   rejectStudentApi,
+  fetchInvitationsApi,
+  createInvitationApi,
+  deleteInvitationApi,
 } from '../lib/api';
+import { Key, Share2, Copy } from 'lucide-react';
 
 interface AdminPanelProps {
   students: Student[];
@@ -50,8 +54,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'students' | 'prizes'
+    'halachot' | 'students' | 'prizes' | 'invitations'
   >('halachot');
+
+  // Invitations State
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [isNewInvModalOpen, setIsNewInvModalOpen] = useState(false);
+  const [copiedInvId, setCopiedInvId] = useState<string | null>(null);
+  const [newInv, setNewInv] = useState<{
+    className: string;
+    grade: GradeType;
+    maxUses: number;
+    code: string;
+  }>({
+    className: "ט'1",
+    grade: 'ט',
+    maxUses: 50,
+    code: '',
+  });
+
+  React.useEffect(() => {
+    fetchInvitationsApi().then((list) => setInvitations(list));
+  }, []);
+
+  const handleCreateInvitation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newInv.code.trim() || !newInv.className.trim()) {
+      alert('נא למלא קוד וכיתה');
+      return;
+    }
+    try {
+      const res = await createInvitationApi({
+        className: newInv.className,
+        grade: newInv.grade,
+        maxUses: newInv.maxUses,
+        code: newInv.code.trim().toUpperCase(),
+      });
+      setInvitations(res.invitations);
+      setIsNewInvModalOpen(false);
+      setNewInv({ className: "ט'1", grade: 'ט', maxUses: 50, code: '' });
+    } catch (e) {
+      console.error(e);
+      alert('שגיאה ביצירת קוד הזמנה');
+    }
+  };
+
+  const handleDeleteInvitation = async (id: string) => {
+    if (confirm('האם למחוק קוד הזמנה זה?')) {
+      try {
+        const res = await deleteInvitationApi(id);
+        setInvitations(res.invitations);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const copyInviteLink = (code: string, invId: string) => {
+    const origin = window.location.origin;
+    const url = `${origin}/#register?invite=${encodeURIComponent(code)}`;
+    navigator.clipboard.writeText(url);
+    setCopiedInvId(invId);
+    setTimeout(() => setCopiedInvId(null), 2500);
+  };
 
   // Student Search / Filter State
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
@@ -305,6 +370,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <Award className="w-4 h-4" />
             <span>דו"ח פרסים וזוכים</span>
+          </button>
+
+          <button
+            onClick={() => setActiveAdminTab('invitations')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeAdminTab === 'invitations'
+                ? 'bg-amber-600 text-white shadow-md'
+                : 'text-amber-200 hover:bg-white/10'
+            }`}
+          >
+            <Key className="w-4 h-4" />
+            <span>הזמנות וקודים</span>
           </button>
         </div>
       </div>
@@ -1015,6 +1092,206 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          TAB 4: INVITATIONS & CLASS CODES MANAGEMENT
+      ==================================================== */}
+      {activeAdminTab === 'invitations' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
+              <div>
+                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <Key className="w-5 h-5 text-amber-600" />
+                  <span>ניהול קודי הזמנה וקישורי הרשמה לתלמידות</span>
+                </h3>
+                <p className="text-xs text-amber-800">
+                  צרו קודי הזמנה ייעודיים לכל כיתה ושכבה באולפנה. תלמידות שיירשמו עם הקוד יאושרו אוטומטית למבצע!
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsNewInvModalOpen(true)}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-2 transition-all shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>יצירת קוד הזמנה חדש</span>
+              </button>
+            </div>
+
+            {/* Invitations List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {invitations.map((inv) => {
+                const isCopied = copiedInvId === inv.id;
+                const percent = inv.maxUses > 0 ? Math.min(100, Math.round((inv.usedCount / inv.maxUses) * 100)) : 0;
+
+                return (
+                  <div
+                    key={inv.id}
+                    className="bg-amber-50/50 border border-amber-200/90 rounded-2xl p-5 space-y-4 hover:shadow-md transition-shadow relative"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="bg-amber-200/80 text-amber-950 text-[11px] font-extrabold px-2.5 py-0.5 rounded-md">
+                          כיתה {inv.className} (שכבה {inv.grade}')
+                        </span>
+                        <h4 className="text-xl font-black font-mono text-amber-900 tracking-wider mt-2">
+                          {inv.code}
+                        </h4>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteInvitation(inv.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="מחק קוד"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Progress Uses */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>שימושים: {inv.usedCount} מתוך {inv.maxUses}</span>
+                        <span>{percent}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-amber-200/60 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-600 rounded-full transition-all duration-300"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Copy Link Button */}
+                    <button
+                      onClick={() => copyInviteLink(inv.code, inv.id)}
+                      className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all ${
+                        isCopied
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100/50'
+                      }`}
+                    >
+                      {isCopied ? (
+                        <>
+                          <Check className="w-4 h-4 text-white" />
+                          <span>הקישור הועתק בהצלחה!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 text-amber-700" />
+                          <span>העתק קישור הרשמה ישיר</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* New Invitation Modal */}
+          {isNewInvModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 border border-amber-200 shadow-2xl max-w-md w-full space-y-4 animate-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="font-extrabold text-amber-950 text-base flex items-center gap-2 font-['Heebo']">
+                    <Key className="w-5 h-5 text-amber-600" />
+                    <span>יצירת קוד הזמנה חדש</span>
+                  </h3>
+                  <button
+                    onClick={() => setIsNewInvModalOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateInvitation} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      קוד הזמנה (לדוגמה: ULPA-2026-T1) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="ULPA-2026-T1"
+                      value={newInv.code}
+                      onChange={(e) => setNewInv({ ...newInv, code: e.target.value.toUpperCase() })}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono text-xs font-bold text-amber-900 uppercase focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        שכבה *
+                      </label>
+                      <select
+                        value={newInv.grade}
+                        onChange={(e) => {
+                          const g = e.target.value as GradeType;
+                          setNewInv({ ...newInv, grade: g, className: `${g}'1` });
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      >
+                        <option value="ט">שכבת ט'</option>
+                        <option value="י">שכבת י'</option>
+                        <option value="יא">שכבת יא'</option>
+                        <option value="יב">שכבת יב'</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="ט'1"
+                        value={newInv.className}
+                        onChange={(e) => setNewInv({ ...newInv, className: e.target.value })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      מכסת שימושים מרבית
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={newInv.maxUses}
+                      onChange={(e) => setNewInv({ ...newInv, maxUses: Number(e.target.value) })}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsNewInvModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-sm"
+                    >
+                      צור קוד הזמנה
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -38,6 +38,18 @@ export interface Student {
   submissions: Record<string, QuizSubmission>;
   status?: 'approved' | 'pending' | 'rejected';
   registeredAt?: string;
+  invitationCode?: string;
+}
+
+export interface Invitation {
+  id: string;
+  code: string;
+  className: string;
+  grade: GradeType;
+  maxUses: number;
+  usedCount: number;
+  createdAt: string;
+  active: boolean;
 }
 
 export interface ClassLeaderboardItem {
