@@ -14,6 +14,7 @@ import { MilestoneModal } from './components/MilestoneModal';
 import { Leaderboards } from './components/Leaderboards';
 import { AdminPanel } from './components/AdminPanel';
 import { RegisterPage } from './components/RegisterPage';
+import { EntryScreen } from './components/EntryScreen';
 
 export default function App() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -21,7 +22,10 @@ export default function App() {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [prizeReports, setPrizeReports] = useState<PrizeReportItem[]>([]);
 
-  const [currentStudentId, setCurrentStudentId] = useState<string | 'admin'>('s1');
+  // Default to null if no user is saved in localStorage, presenting the Entry Screen to newcomers!
+  const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(() => {
+    return localStorage.getItem('halacha_current_user') || null;
+  });
   const [selectedDate, setSelectedDate] = useState<string>('2026-07-31');
   const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
 
@@ -45,9 +49,15 @@ export default function App() {
       setLeaderboardData(lData);
       setPrizeReports(pData.reports);
 
-      // Ensure valid current student if not admin
-      if (currentStudentId !== 'admin' && !sData.some((s) => s.id === currentStudentId)) {
-        if (sData.length > 0) setCurrentStudentId(sData[0].id);
+      // Validate saved student ID
+      if (
+        currentStudentId !== null &&
+        currentStudentId !== 'admin' &&
+        !sData.some((s) => s.id === currentStudentId)
+      ) {
+        // If not found, reset to entry screen
+        setCurrentStudentId(null);
+        localStorage.removeItem('halacha_current_user');
       }
     } catch (e) {
       console.error('Error loading data', e);
@@ -61,28 +71,38 @@ export default function App() {
   }, [selectedDate]);
 
   const handleResetDemo = async () => {
-    try {
-      await resetDemoApi();
-      await loadData();
-    } catch (e) {
-      console.error('Error resetting demo', e);
+    if (confirm('האם לאפס את כל הנתונים, הניקוד והחידונים למצב ההתחלתי?')) {
+      try {
+        await resetDemoApi();
+        await loadData();
+      } catch (e) {
+        console.error('Error resetting demo', e);
+      }
     }
+  };
+
+  const handleLoginSuccess = (user: Student | 'admin') => {
+    const id = typeof user === 'string' ? user : user.id;
+    setCurrentStudentId(id);
+    localStorage.setItem('halacha_current_user', id);
+    setActiveTab(id === 'admin' ? 'admin' : 'study');
+    loadData();
+  };
+
+  const handleLogout = () => {
+    setCurrentStudentId(null);
+    localStorage.removeItem('halacha_current_user');
   };
 
   const handleQuizSubmitted = async (
     updatedStudent: Student,
     milestones: PrizeMilestone[]
   ) => {
-    // Update state & leaderboard
     await loadData();
-
-    // Show milestone modal if any target was reached!
     if (milestones && milestones.length > 0) {
       setActiveMilestoneAlert(milestones[0]);
     }
   };
-
-  const currentStudent = students.find((s) => s.id === currentStudentId) || students[0];
 
   if (isLoading) {
     return (
@@ -97,6 +117,18 @@ export default function App() {
     );
   }
 
+  // If no user is logged in (First time entering), display the simple Entry Screen!
+  if (!currentStudentId) {
+    return (
+      <EntryScreen
+        onLoginSuccess={handleLoginSuccess}
+        students={students}
+      />
+    );
+  }
+
+  const currentStudent = students.find((s) => s.id === currentStudentId) || (currentStudentId !== 'admin' ? students[0] : null);
+
   return (
     <div className="min-h-screen flex flex-col bg-amber-50/40 text-slate-800 font-['Assistant',sans-serif]">
       {/* Navbar Header */}
@@ -107,6 +139,7 @@ export default function App() {
         activeTab={activeTab}
         onChangeTab={(tab) => setActiveTab(tab)}
         onResetDemo={handleResetDemo}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}

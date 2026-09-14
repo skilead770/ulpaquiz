@@ -19,11 +19,15 @@ import {
   GradeType,
   QuizSubmission,
   Invitation,
+  Manager,
+  DEFAULT_CLASSES,
+  inferGradeFromClass,
 } from '../types';
 import {
   INITIAL_STUDENTS,
   INITIAL_HALACHOT,
   INITIAL_INVITATIONS,
+  INITIAL_MANAGERS,
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
 
@@ -414,22 +418,35 @@ export async function addStudentApi(student: Partial<Student>) {
     console.info('[API] Falling back to direct Firestore for addStudentApi');
   }
 
-  const newStudent: Student = {
-    id: student.id || `s-${Date.now()}`,
-    fullName: student.fullName || '',
-    className: student.className || '',
-    grade: (student.grade as GradeType) || 'ט',
-    username: student.username || '',
-    password: student.password || '123',
-    points: student.points || 0,
-    completedDates: [],
-    submissions: {},
-    status: student.status || 'approved',
-  };
-
-  await setDoc(doc(db, 'students', newStudent.id), newStudent);
   const allStudents = await getOrSeedFirestoreStudents();
-  return { success: true, student: newStudent, students: allStudents };
+  const existingIdx = allStudents.findIndex((s) => s.id === student.id);
+  let targetStudent: Student;
+
+  if (existingIdx >= 0) {
+    targetStudent = {
+      ...allStudents[existingIdx],
+      ...student,
+      points: typeof student.points === 'number' ? student.points : allStudents[existingIdx].points,
+    } as Student;
+  } else {
+    targetStudent = {
+      id: student.id || `s-${Date.now()}`,
+      fullName: student.fullName || '',
+      className: student.className || '',
+      grade: (student.grade as GradeType) || 'ט',
+      username: student.username || '',
+      email: student.email || '',
+      password: student.password || '123',
+      points: student.points || 0,
+      completedDates: [],
+      submissions: {},
+      status: student.status || 'approved',
+    };
+  }
+
+  await setDoc(doc(db, 'students', targetStudent.id), targetStudent);
+  const updatedStudents = await getOrSeedFirestoreStudents();
+  return { success: true, student: targetStudent, students: updatedStudents };
 }
 
 export async function deleteStudentApi(id: string) {
@@ -604,14 +621,125 @@ export async function validateInvitationCodeApi(code: string): Promise<{ valid: 
   return { valid: true, invitation: inv };
 }
 
+export async function checkStudentStatusApi(email: string): Promise<{
+  registered: boolean;
+  status?: 'approved' | 'pending' | 'rejected';
+  student?: Student;
+}> {
+  try {
+    const res = await fetch('/api/auth/check-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to direct Firestore for checkStudentStatusApi');
+  }
+
+  const existingStudents = await getOrSeedFirestoreStudents();
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanUsername = cleanEmail.split('@')[0];
+
+  const student = existingStudents.find((s) => {
+    const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+    const sUser = s.username ? s.username.trim().toLowerCase() : '';
+    return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
+  });
+
+  if (!student) {
+    return { registered: false };
+  }
+
+  return {
+    registered: true,
+    status: student.status || 'approved',
+    student: student.status === 'approved' ? student : undefined,
+  };
+}
+
+export async function loginByEmailApi(
+  email: string
+): Promise<{
+  success: boolean;
+  student?: Student;
+  isManager?: boolean;
+  role?: string;
+  message?: string;
+  manager?: Manager;
+}> {
+  try {
+    const res = await fetch('/api/auth/login-by-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    } else {
+      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה בהתחברות' }));
+      throw new Error(err.error || 'שגיאה בהתחברות');
+    }
+  } catch (e: any) {
+    if (e.message && (e.message.includes('לא נמצאה תלמידה') || e.message.includes('ממתינה לאישור') || e.message.includes('נדחתה'))) {
+      throw e;
+    }
+    console.info('[API] Falling back to direct Firestore for loginByEmailApi');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (cleanEmail === 'skilead770@gmail.com') {
+    return {
+      success: true,
+      isManager: true,
+      role: 'admin',
+      manager: INITIAL_MANAGERS[0],
+      message: 'שלום מנהל המערכת!',
+    };
+  }
+
+  const existingStudents = await getOrSeedFirestoreStudents();
+  const cleanUsername = cleanEmail.split('@')[0];
+
+  const student = existingStudents.find((s) => {
+    const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+    const sUser = s.username ? s.username.trim().toLowerCase() : '';
+    return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
+  });
+
+  if (!student) {
+    throw new Error('לא נמצאה תלמידה רשומה עם כתובת Gmail זו. נא להירשם תחילה.');
+  }
+
+  if (student.status === 'pending') {
+    throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
+  }
+
+  if (student.status === 'rejected') {
+    throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
+  }
+
+  return { success: true, student };
+}
+
 export async function registerStudentApi(studentData: {
   fullName: string;
-  grade: string;
-  className: string;
-  username: string;
+  email?: string;
+  grade?: string;
+  className?: string;
+  username?: string;
   password?: string;
   invitationCode?: string;
-}) {
+}): Promise<{
+  success: boolean;
+  status?: 'pending' | 'approved' | 'rejected';
+  autoApproved?: boolean;
+  isManager?: boolean;
+  message: string;
+  student?: Student;
+}> {
   try {
     const res = await fetch('/api/register', {
       method: 'POST',
@@ -620,39 +748,83 @@ export async function registerStudentApi(studentData: {
     });
     if (res.ok) {
       return await parseJsonResponse(res);
+    } else {
+      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה ברישום' }));
+      throw new Error(err.error || 'שגיאה ברישום');
     }
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message && (e.message.includes('Gmail') || e.message.includes('שם מלא'))) {
+      throw e;
+    }
     console.info('[API] Falling back to direct Firestore for registerStudentApi');
   }
 
   const existingStudents = await getOrSeedFirestoreStudents();
-  const trimmedUser = studentData.username.trim().toLowerCase();
-  if (existingStudents.some((s) => s.username.trim().toLowerCase() === trimmedUser)) {
-    throw new Error('שם המשתמש כבר תפוס, נא לבחור שם משתמש אחר');
+  const cleanEmail = (studentData.email || studentData.username || '').trim().toLowerCase();
+  const effectiveEmail = cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@gmail.com`;
+
+  // If already exists, return current status
+  const existing = existingStudents.find((s) => {
+    const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+    const sUser = s.username ? s.username.trim().toLowerCase() : '';
+    return sEmail === effectiveEmail || sUser === effectiveEmail || sUser === cleanEmail.split('@')[0];
+  });
+
+  if (existing) {
+    if (existing.status === 'approved') {
+      return {
+        success: true,
+        status: 'approved',
+        autoApproved: true,
+        message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+        student: existing,
+      };
+    } else if (existing.status === 'pending') {
+      return {
+        success: true,
+        status: 'pending',
+        autoApproved: false,
+        message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+        student: existing,
+      };
+    } else {
+      throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
+    }
   }
 
-  let isAutoApproved = false;
+  const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
+  let finalUsername = baseUser;
+  let counter = 1;
+  while (existingStudents.some((s) => s.username.toLowerCase() === finalUsername.toLowerCase())) {
+    finalUsername = `${baseUser}${counter++}`;
+  }
+
+  let matchedInvitation: Invitation | undefined;
   if (studentData.invitationCode) {
     const valRes = await validateInvitationCodeApi(studentData.invitationCode);
     if (valRes.valid && valRes.invitation) {
-      isAutoApproved = true;
-      const inv = valRes.invitation;
-      inv.usedCount += 1;
-      await setDoc(doc(db, 'invitations', inv.id), inv);
+      matchedInvitation = valRes.invitation;
+      matchedInvitation.usedCount += 1;
+      await setDoc(doc(db, 'invitations', matchedInvitation.id), matchedInvitation);
     }
   }
+
+  // Pending admin approval required!
+  const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
+  const derivedGrade = inferGradeFromClass(chosenClass);
 
   const newStudent: Student = {
     id: `s-reg-${Date.now()}`,
     fullName: studentData.fullName.trim(),
-    className: studentData.className.trim(),
-    grade: studentData.grade as GradeType,
-    username: studentData.username.trim(),
+    className: chosenClass,
+    grade: derivedGrade,
+    username: finalUsername,
+    email: effectiveEmail,
     password: studentData.password?.trim() || '123',
     points: 0,
     completedDates: [],
     submissions: {},
-    status: isAutoApproved ? 'approved' : 'pending',
+    status: 'pending',
     registeredAt: new Date().toISOString(),
     invitationCode: studentData.invitationCode ? studentData.invitationCode.trim().toUpperCase() : undefined,
   };
@@ -661,10 +833,9 @@ export async function registerStudentApi(studentData: {
 
   return {
     success: true,
-    autoApproved: isAutoApproved,
-    message: isAutoApproved
-      ? 'הרשמתך אושרה אוטומטית באמצעות קוד ההזמנה! הרי אנו מברכים אותך בהצטרפות למבצע.'
-      : 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
+    status: 'pending',
+    autoApproved: false,
+    message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
     student: newStudent,
   };
 }
@@ -724,4 +895,206 @@ export async function resetDemoApi() {
   }
 
   return { success: true };
+}
+
+export async function fetchManagersApi(): Promise<Manager[]> {
+  try {
+    const res = await fetch('/api/managers');
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to Firestore for fetchManagersApi');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, 'managers'));
+    if (!snap.empty) {
+      const list: Manager[] = [];
+      snap.forEach((d) => list.push(d.data() as Manager));
+      if (!list.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+        list.unshift(INITIAL_MANAGERS[0]);
+      }
+      return list;
+    }
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error fetching managers:', err);
+  }
+  return INITIAL_MANAGERS;
+}
+
+export async function addManagerApi(
+  email: string,
+  name: string
+): Promise<{ success: boolean; managers: Manager[] }> {
+  try {
+    const res = await fetch('/api/managers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name }),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    } else {
+      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה בהוספת מנהל' }));
+      throw new Error(err.error || 'שגיאה בהוספת מנהל');
+    }
+  } catch (e: any) {
+    if (e.message && (e.message.includes('Gmail') || e.message.includes('מנהל זה כבר רשום'))) {
+      throw e;
+    }
+    console.info('[API] Falling back to Firestore for addManagerApi');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const newMgr: Manager = {
+    email: cleanEmail,
+    name: name.trim() || cleanEmail.split('@')[0],
+    role: 'admin',
+    addedAt: new Date().toISOString(),
+  };
+  const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
+  await setDoc(doc(db, 'managers', safeId), newMgr);
+  const managers = await fetchManagersApi();
+  return { success: true, managers };
+}
+
+export async function deleteManagerApi(
+  email: string
+): Promise<{ success: boolean; managers: Manager[] }> {
+  try {
+    const res = await fetch(`/api/managers/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    } else {
+      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה במחיקת מנהל' }));
+      throw new Error(err.error || 'שגיאה במחיקת מנהל');
+    }
+  } catch (e: any) {
+    if (e.message && e.message.includes('לא ניתן למחוק')) {
+      throw e;
+    }
+    console.info('[API] Falling back to Firestore for deleteManagerApi');
+  }
+
+  const safeId = email.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+  await deleteDoc(doc(db, 'managers', safeId));
+  const managers = await fetchManagersApi();
+  return { success: true, managers };
+}
+
+// ==========================================
+// School Classes API (Admin & Registration)
+// ==========================================
+
+export async function fetchClassesApi(): Promise<string[]> {
+  try {
+    const res = await fetch('/api/classes');
+    if (res.ok) {
+      const data = await parseJsonResponse(res);
+      if (Array.isArray(data.classes) && data.classes.length > 0) {
+        return data.classes;
+      }
+    }
+  } catch (e) {
+    console.info('[API] Falling back to Firestore for fetchClassesApi');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, 'settings'));
+    let found: string[] | null = null;
+    snap.forEach((d) => {
+      if (d.id === 'classes') {
+        const cData = d.data();
+        if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
+          found = cData.list;
+        }
+      }
+    });
+    if (found) return found;
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error fetching classes:', err);
+  }
+
+  return DEFAULT_CLASSES;
+}
+
+export async function addClassApi(name: string): Promise<string[]> {
+  const clean = name.trim();
+  if (!clean) throw new Error('נא להזין שם כיתה');
+
+  try {
+    const res = await fetch('/api/classes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: clean }),
+    });
+    if (res.ok) {
+      const data = await parseJsonResponse(res);
+      return data.classes;
+    }
+  } catch (e) {
+    console.info('[API] Falling back to Firestore for addClassApi');
+  }
+
+  const current = await fetchClassesApi();
+  if (!current.includes(clean)) {
+    const updated = [...current, clean];
+    try {
+      await setDoc(doc(db, 'settings', 'classes'), { list: updated });
+    } catch (err) {
+      console.warn('[Firestore Fallback] Error saving classes:', err);
+    }
+    return updated;
+  }
+  return current;
+}
+
+export async function deleteClassApi(name: string): Promise<string[]> {
+  const clean = name.trim();
+  try {
+    const res = await fetch(`/api/classes/${encodeURIComponent(clean)}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      const data = await parseJsonResponse(res);
+      return data.classes;
+    }
+  } catch (e) {
+    console.info('[API] Falling back to Firestore for deleteClassApi');
+  }
+
+  const current = await fetchClassesApi();
+  const updated = current.filter((c) => c !== clean);
+  try {
+    await setDoc(doc(db, 'settings', 'classes'), { list: updated });
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error deleting class:', err);
+  }
+  return updated;
+}
+
+export async function updateClassesApi(classes: string[]): Promise<string[]> {
+  try {
+    const res = await fetch('/api/classes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classes }),
+    });
+    if (res.ok) {
+      const data = await parseJsonResponse(res);
+      return data.classes;
+    }
+  } catch (e) {
+    console.info('[API] Falling back to Firestore for updateClassesApi');
+  }
+
+  try {
+    await setDoc(doc(db, 'settings', 'classes'), { list: classes });
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error updating classes:', err);
+  }
+  return classes;
 }

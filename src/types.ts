@@ -1,5 +1,24 @@
 export type GradeType = 'ט' | 'י' | 'יא' | 'יב';
 
+export const DEFAULT_CLASSES: string[] = [
+  "ט'1",
+  "ט'2",
+  "י'1",
+  "י'2",
+  "יא'1",
+  "יא'2",
+  "יב'1",
+  "יב'2",
+];
+
+export function inferGradeFromClass(className: string): GradeType {
+  const clean = (className || '').trim();
+  if (clean.startsWith('יב') || clean.includes('יב')) return 'יב';
+  if (clean.startsWith('יא') || clean.includes('יא')) return 'יא';
+  if (clean.startsWith('י') || clean.includes("י'")) return 'י';
+  return 'ט';
+}
+
 export interface Question {
   id: string;
   text: string;
@@ -32,6 +51,7 @@ export interface Student {
   className: string; // e.g. "ט'1", "י'2"
   grade: GradeType;
   username: string;
+  email?: string;
   password?: string;
   points: number; // cumulative total points
   completedDates: string[]; // YYYY-MM-DD
@@ -100,4 +120,11 @@ export interface PrizeReportItem {
   qualifyingMilestones: PrizeMilestone[];
   nextMilestone: PrizeMilestone | null;
   pointsNeeded: number;
+}
+
+export interface Manager {
+  email: string;
+  name: string;
+  role: 'superadmin' | 'admin';
+  addedAt: string;
 }

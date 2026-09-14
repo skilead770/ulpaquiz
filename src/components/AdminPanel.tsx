@@ -22,8 +22,19 @@ import {
   Clock,
   Check,
   X,
+  Mail,
 } from 'lucide-react';
-import { Student, DailyHalacha, PrizeReportItem, Question, GradeType, Invitation } from '../types';
+import {
+  Student,
+  DailyHalacha,
+  PrizeReportItem,
+  Question,
+  GradeType,
+  Invitation,
+  Manager,
+  DEFAULT_CLASSES,
+  inferGradeFromClass,
+} from '../types';
 import { ExcelUploader } from './ExcelUploader';
 import {
   bulkImportStudentsApi,
@@ -37,8 +48,14 @@ import {
   fetchInvitationsApi,
   createInvitationApi,
   deleteInvitationApi,
+  fetchManagersApi,
+  addManagerApi,
+  deleteManagerApi,
+  fetchClassesApi,
+  addClassApi,
+  deleteClassApi,
 } from '../lib/api';
-import { Key, Share2, Copy } from 'lucide-react';
+import { Key, Share2, Copy, Shield, UserCog, ShieldCheck, RefreshCw } from 'lucide-react';
 
 interface AdminPanelProps {
   students: Student[];
@@ -54,8 +71,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'students' | 'prizes' | 'invitations'
+    'halachot' | 'students' | 'prizes' | 'invitations' | 'managers'
   >('halachot');
+
+  // Managers State
+  const [managers, setManagers] = useState<Manager[]>([]);
+  const [newManagerEmail, setNewManagerEmail] = useState('');
+  const [newManagerName, setNewManagerName] = useState('');
+  const [isAddingManager, setIsAddingManager] = useState(false);
+  const [managerMsg, setManagerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  React.useEffect(() => {
+    fetchManagersApi().then((list) => setManagers(list));
+  }, []);
+
+  const handleAddManager = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newManagerEmail.trim()) return;
+    setIsAddingManager(true);
+    setManagerMsg(null);
+    try {
+      const res = await addManagerApi(newManagerEmail.trim(), newManagerName.trim());
+      setManagers(res.managers);
+      setNewManagerEmail('');
+      setNewManagerName('');
+      setManagerMsg({ type: 'success', text: 'מנהל/ת חדש/ה נוסף/ה בהצלחה למערכת!' });
+    } catch (err: any) {
+      setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהוספת מנהל' });
+    } finally {
+      setIsAddingManager(false);
+    }
+  };
+
+  const handleDeleteManager = async (email: string) => {
+    if (confirm(`האם להסיר את הרשאות הניהול מכתובת ${email}?`)) {
+      try {
+        const res = await deleteManagerApi(email);
+        setManagers(res.managers);
+        setManagerMsg({ type: 'success', text: 'הרשאות הניהול הוסרו בהצלחה' });
+      } catch (err: any) {
+        setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהסרת מנהל' });
+      }
+    }
+  };
 
   // Invitations State
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -73,9 +131,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     code: '',
   });
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        onRefreshData(),
+        fetchInvitationsApi().then((list) => setInvitations(list)),
+      ]);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400);
+    }
+  };
+
   React.useEffect(() => {
     fetchInvitationsApi().then((list) => setInvitations(list));
+    // Auto-poll every 5 seconds so newly registered students appear automatically without manual reload
+    const interval = setInterval(() => {
+      onRefreshData();
+    }, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  React.useEffect(() => {
+    if (activeAdminTab === 'students') {
+      onRefreshData();
+    }
+  }, [activeAdminTab]);
 
   const handleCreateInvitation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,6 +296,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const pendingStudents = students.filter((s) => s.status === 'pending');
 
+  // Edit Student Modal State
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isUpdatingStudent, setIsUpdatingStudent] = useState(false);
+  const [editStudentError, setEditStudentError] = useState<string | null>(null);
+
+  const handleOpenEditStudent = (s: Student) => {
+    setEditingStudent({ ...s });
+    setEditStudentError(null);
+  };
+
+  const handleSaveEditedStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    if (!editingStudent.fullName.trim() || !editingStudent.className.trim()) {
+      setEditStudentError('נא למלא שם מלא וכיתה');
+      return;
+    }
+    setIsUpdatingStudent(true);
+    setEditStudentError(null);
+    try {
+      await addStudentApi({
+        id: editingStudent.id,
+        fullName: editingStudent.fullName.trim(),
+        email: editingStudent.email?.trim() || undefined,
+        grade: editingStudent.grade,
+        className: editingStudent.className.trim(),
+        username: editingStudent.username,
+        password: editingStudent.password,
+        points: Number(editingStudent.points) || 0,
+        status: editingStudent.status || 'approved',
+      });
+      setEditingStudent(null);
+      onRefreshData();
+    } catch (err: any) {
+      console.error(err);
+      setEditStudentError(err?.message || 'אירעה שגיאה בעדכון פרטי התלמידה');
+    } finally {
+      setIsUpdatingStudent(false);
+    }
+  };
+
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState('');
   const [aiDate, setAiDate] = useState('2026-08-01');
@@ -329,8 +453,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </h2>
         </div>
 
-        {/* Admin Subtabs */}
-        <div className="flex items-center gap-1.5 bg-black/20 p-1.5 rounded-2xl border border-white/10">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="px-3 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-amber-100 border border-white/20 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="רענן נתונים מהשרת"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-300' : ''}`} />
+            <span>רענון נתונים</span>
+          </button>
+
+          {/* Admin Subtabs */}
+          <div className="flex items-center gap-1.5 bg-black/20 p-1.5 rounded-2xl border border-white/10">
           <button
             onClick={() => setActiveAdminTab('halachot')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -383,6 +518,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <Key className="w-4 h-4" />
             <span>הזמנות וקודים</span>
           </button>
+
+          <button
+            onClick={() => setActiveAdminTab('managers')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeAdminTab === 'managers'
+                ? 'bg-amber-600 text-white shadow-md'
+                : 'text-amber-200 hover:bg-white/10'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-yellow-300" />
+            <span>מנהלי מערכת ({managers.length || 1})</span>
+          </button>
+        </div>
         </div>
       </div>
 
@@ -703,7 +851,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeAdminTab === 'students' && (
         <div className="space-y-6">
           {/* Pending Registrations Card */}
-          {pendingStudents.length > 0 && (
+          {pendingStudents.length > 0 ? (
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-3xl p-6 border-2 border-amber-400 shadow-md space-y-4">
               <div className="flex items-center justify-between border-b border-amber-200 pb-3">
                 <div className="flex items-center gap-2">
@@ -730,41 +878,80 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     key={s.id}
                     className="bg-white p-4 rounded-2xl border border-amber-300 shadow-xs flex flex-col justify-between space-y-3"
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-extrabold text-slate-900 text-sm">{s.fullName}</span>
                         <span className="bg-amber-100 text-amber-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
                           כיתה {s.className}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 font-mono">
-                        שם משתמש: <strong className="text-amber-900">{s.username}</strong>
-                      </p>
+                      {s.email ? (
+                        <div className="flex items-center gap-1 text-xs text-amber-950 font-mono bg-amber-50/80 px-2.5 py-1 rounded-xl border border-amber-200 truncate" dir="ltr">
+                          <Mail className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                          <span className="truncate">{s.email}</span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-600 font-mono">
+                          משתמש: <strong className="text-amber-900">{s.username}</strong>
+                        </p>
+                      )}
                       <p className="text-[11px] text-slate-400">
                         שכבה {s.grade}' {s.registeredAt ? `• ${new Date(s.registeredAt).toLocaleDateString('he-IL')}` : ''}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100">
                       <button
                         onClick={() => handleApproveStudent(s.id)}
                         className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="אישור הרשמה מיידי"
                       >
                         <Check className="w-4 h-4" />
-                        <span>אישור הרשמה</span>
+                        <span>אישור</span>
+                      </button>
+                      <button
+                        onClick={() => handleOpenEditStudent(s)}
+                        className="py-2 px-3 bg-amber-100 hover:bg-amber-200 text-amber-950 font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        title="עריכת פרטים וכיתה"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>עריכה</span>
                       </button>
                       <button
                         onClick={() => handleRejectStudent(s.id, s.fullName)}
-                        className="py-2 px-3 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        className="py-2 px-2.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
                         title="דחה הרשמה"
                       >
                         <X className="w-4 h-4" />
-                        <span>דחייה</span>
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
+          ) : (
+            <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-sm">
+                    אין כרגע תלמידות הממתינות לאישור
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    כאשר תלמידה תירשם עם ה-Gmail שלה, פרטיה יופיעו כאן מיידית לאישורך.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="px-3 py-1.5 bg-white border border-amber-300 text-amber-900 rounded-xl text-xs font-bold hover:bg-amber-100/50 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-600' : ''}`} />
+                <span>רענן כעת</span>
+              </button>
             </div>
           )}
 
@@ -824,9 +1011,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <thead>
                   <tr className="border-b border-amber-200 bg-amber-50 text-amber-950 font-extrabold">
                     <th className="p-3">שם מלא</th>
+                    <th className="p-3">Gmail / מייל</th>
                     <th className="p-3">כיתה</th>
                     <th className="p-3">שכבה</th>
-                    <th className="p-3">שם משתמש</th>
                     <th className="p-3">סטטוס הרשמה</th>
                     <th className="p-3">ניקוד מצטבר</th>
                     <th className="p-3">חידונים שהושלמו</th>
@@ -837,9 +1024,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {filteredStudents.map((s) => (
                     <tr key={s.id} className="hover:bg-amber-50/50">
                       <td className="p-3 font-bold text-slate-900">{s.fullName}</td>
+                      <td className="p-3 text-slate-600 font-mono text-[11px]" dir="ltr">
+                        {s.email || s.username}
+                      </td>
                       <td className="p-3 font-semibold text-amber-900">{s.className}</td>
                       <td className="p-3 font-semibold text-slate-700">{s.grade}'</td>
-                      <td className="p-3 text-slate-500 font-mono">{s.username}</td>
                       <td className="p-3">
                         {s.status === 'pending' ? (
                           <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
@@ -848,7 +1037,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         ) : s.status === 'rejected' ? (
                           <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            נגנזה
+                            נדחתה
                           </span>
                         ) : (
                           <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
@@ -868,12 +1057,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {s.status === 'pending' && (
                             <button
                               onClick={() => handleApproveStudent(s.id)}
-                              className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 transition-colors"
+                              className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-100 transition-colors"
                               title="אישור תלמידה"
                             >
                               <Check className="w-4 h-4" />
                             </button>
                           )}
+                          <button
+                            onClick={() => handleOpenEditStudent(s)}
+                            className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition-colors"
+                            title="עריכת פרטי תלמידה"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => handleDeleteStudent(s.id, s.fullName)}
                             className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
@@ -1020,6 +1216,193 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     >
                       <Save className="w-4 h-4" />
                       <span>{isSavingStudent ? 'שומר...' : 'שמור תלמידה'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Student Modal */}
+          {editingStudent && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-6 space-y-5 my-8">
+                <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+                      <Edit className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-amber-950 font-['Heebo']">
+                        עריכת פרטי תלמידה
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        עדכון פרטים אישיים, כתובת Gmail, כיתה וסטטוס הרשמה
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEditingStudent(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEditedStudent} className="space-y-4 text-right">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      שם מלא <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingStudent.fullName}
+                      onChange={(e) =>
+                        setEditingStudent({ ...editingStudent, fullName: e.target.value })
+                      }
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>כתובת Gmail</span>
+                      <span className="text-[11px] text-amber-700 font-normal">
+                        משמשת לכניסת התלמידה
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      placeholder="student@gmail.com"
+                      value={editingStudent.email || ''}
+                      onChange={(e) =>
+                        setEditingStudent({ ...editingStudent, email: e.target.value })
+                      }
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-mono font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        שכבה <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={editingStudent.grade}
+                        onChange={(e) =>
+                          setEditingStudent({
+                            ...editingStudent,
+                            grade: e.target.value as GradeType,
+                          })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      >
+                        <option value="ט">שכבת ט'</option>
+                        <option value="י">שכבת י'</option>
+                        <option value="יא">שכבת י"א</option>
+                        <option value="יב">שכבת י"ב</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="לדוגמה: ט'1"
+                        value={editingStudent.className}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, className: e.target.value })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        סטטוס במערכת
+                      </label>
+                      <select
+                        value={editingStudent.status || 'approved'}
+                        onChange={(e) =>
+                          setEditingStudent({
+                            ...editingStudent,
+                            status: e.target.value as 'approved' | 'pending' | 'rejected',
+                          })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      >
+                        <option value="approved">✓ מאושרת ללימוד</option>
+                        <option value="pending">⏳ ממתינה לאישור</option>
+                        <option value="rejected">✕ נדחתה</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        ניקוד מצטבר במבצע
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editingStudent.points}
+                        onChange={(e) =>
+                          setEditingStudent({
+                            ...editingStudent,
+                            points: Number(e.target.value),
+                          })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick approve button if currently pending */}
+                  {editingStudent.status === 'pending' && (
+                    <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-950">
+                        התלמידה ממתינה לאישור
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingStudent({ ...editingStudent, status: 'approved' })
+                        }
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>שני למאושרת</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {editStudentError && (
+                    <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                      {editStudentError}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setEditingStudent(null)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingStudent}
+                      className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{isUpdatingStudent ? 'שומר שינויים...' : 'שמור שינויים'}</span>
                     </button>
                   </div>
                 </form>
@@ -1292,6 +1675,236 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ====================================================
+          TAB 5: MANAGERS & ADMINISTRATORS MANAGEMENT
+      ==================================================== */}
+      {activeAdminTab === 'managers' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-amber-800 via-amber-900 to-slate-900 text-white p-6 sm:p-7 rounded-3xl shadow-sm relative overflow-hidden">
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600/50 border border-amber-300/30 rounded-full text-xs font-bold text-amber-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>ניהול הרשאות וצוות</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black font-['Heebo']">
+                  מנהלי מערכת מורשים
+                </h2>
+                <p className="text-xs sm:text-sm text-amber-100/80 max-w-xl leading-relaxed">
+                  הוספה וניהול של אנשי צוות המורשים לאשר תלמידות, לערוך הלכות וחידונים, ולצפות בדו"חות הזוכים.
+                </p>
+              </div>
+
+              {/* Quick Status for Primary Manager */}
+              <div className="bg-white/10 backdrop-blur-md border border-white/20 p-3.5 rounded-2xl text-right sm:min-w-[240px]">
+                <span className="text-[11px] text-amber-200 font-medium block">מנהל ראשי נוכחי:</span>
+                <span className="text-sm font-extrabold text-white font-mono dir-ltr block">
+                  skilead770@gmail.com
+                </span>
+                <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-400/20 text-yellow-300 text-[10px] font-bold rounded-md border border-yellow-400/30">
+                  סופר-אדמין (קבוע)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Feedback Message */}
+          {managerMsg && (
+            <div
+              className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in ${
+                managerMsg.type === 'success'
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border border-rose-200 text-rose-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {managerMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{managerMsg.text}</span>
+              </div>
+              <button
+                onClick={() => setManagerMsg(null)}
+                className="text-xs opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* How It Works Guide Card */}
+          <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-5 text-amber-950 space-y-2">
+            <h3 className="text-sm font-extrabold flex items-center gap-2 text-amber-900">
+              <Sparkles className="w-4 h-4 text-amber-600" />
+              <span>כיצד מנהל נכנס למערכת?</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs leading-relaxed text-amber-900/90">
+              <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
+                <span className="font-extrabold text-amber-800 block">1. הזנת כתובת ה-Gmail</span>
+                <p>במסך הכניסה, מזינים את כתובת ה-Gmail המורשית (למשל skilead770@gmail.com).</p>
+              </div>
+              <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
+                <span className="font-extrabold text-amber-800 block">2. זיהוי אוטומטי כמנהל</span>
+                <p>המערכת מזהה אוטומטית שמדובר במנהל ומעבירה ישירות למסך הניהול ללא המתנה.</p>
+              </div>
+              <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
+                <span className="font-extrabold text-amber-800 block">3. כניסה ישירה לניהול</span>
+                <p>ניתן גם ללחוץ על הכפתור "כניסה ישירה לניהול" בתחתית מסך הכניסה בכל עת.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Add New Manager Form Card */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                <UserPlus className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-800">
+                  הוספת מנהל/ת חדש/ה
+                </h3>
+                <p className="text-xs text-slate-500">
+                  הזינו שם וכתובת Gmail להענקת הרשאות ניהול מלאות
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleAddManager} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    שם מלא או תפקיד *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="לדוגמה: רבקה כהן - רכזת שכבה"
+                    value={newManagerName}
+                    onChange={(e) => setNewManagerName(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    כתובת Gmail *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      placeholder="teacher@gmail.com"
+                      value={newManagerEmail}
+                      onChange={(e) => setNewManagerEmail(e.target.value)}
+                      className="w-full p-2.5 pl-8 rounded-xl border border-slate-300 text-xs font-semibold font-mono dir-ltr focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-2.5 top-3 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-[11px] text-slate-500">
+                  כתובת המייל חייבת להיות כתובת Gmail תקינה.
+                </span>
+                <button
+                  type="submit"
+                  disabled={isAddingManager || !newManagerEmail.trim()}
+                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-amber-700 hover:bg-amber-800 disabled:opacity-50 shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>{isAddingManager ? 'מוסיף מנהל...' : 'הוסף מנהל/ת'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Current Managers List */}
+          <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-amber-600" />
+                <h3 className="text-sm font-extrabold text-slate-800">
+                  רשימת מנהלי המערכת ({managers.length})
+                </h3>
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {managers.map((m) => {
+                const isSuperadmin = m.email.toLowerCase() === 'skilead770@gmail.com';
+                return (
+                  <div
+                    key={m.email}
+                    className="p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-xs ${
+                          isSuperadmin
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-slate-100 text-slate-700 border border-slate-200'
+                        }`}
+                      >
+                        {isSuperadmin ? <Crown className="w-5 h-5 text-amber-200" /> : <Shield className="w-5 h-5" />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs sm:text-sm font-extrabold text-slate-900">
+                            {m.name || m.email.split('@')[0]}
+                          </span>
+                          {isSuperadmin ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[10px] font-extrabold">
+                              מנהל ראשי (Superadmin)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[10px] font-bold">
+                              מנהל
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                          <span className="font-mono dir-ltr font-semibold text-slate-700">
+                            {m.email}
+                          </span>
+                          {m.addedAt && (
+                            <span className="text-[11px] text-slate-400">
+                              • נוסף בתאריך: {new Date(m.addedAt).toLocaleDateString('he-IL')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      {isSuperadmin ? (
+                        <span className="text-[11px] text-amber-800/80 font-bold bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/60">
+                          מוגן ממחיקה
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteManager(m.email)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="הסרת הרשאות ניהול"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>הסר מנהל</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>

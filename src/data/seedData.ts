@@ -1,4 +1,15 @@
-import { DailyHalacha, Student, PrizeMilestone, Invitation } from '../types';
+import { DailyHalacha, Student, PrizeMilestone, Invitation, Manager, DEFAULT_CLASSES } from '../types';
+
+export const INITIAL_CLASSES: string[] = [...DEFAULT_CLASSES];
+
+export const INITIAL_MANAGERS: Manager[] = [
+  {
+    email: 'skilead770@gmail.com',
+    name: 'מנהל ראשי (skilead770)',
+    role: 'superadmin',
+    addedAt: '2026-09-14T01:13:00Z',
+  },
+];
 
 export const INITIAL_INVITATIONS: Invitation[] = [
   {
@@ -263,6 +274,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "ט'1",
     grade: 'ט',
     username: 'emuna',
+    email: 'emuna@gmail.com',
     password: '123',
     points: 14,
     completedDates: ['2026-07-31', '2026-07-30', '2026-07-29'],
@@ -277,6 +289,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "ט'1",
     grade: 'ט',
     username: 'hodaya',
+    email: 'hodaya@gmail.com',
     password: '123',
     points: 12,
     completedDates: ['2026-07-31', '2026-07-30'],
@@ -290,6 +303,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "ט'2",
     grade: 'ט',
     username: 'noa',
+    email: 'noa@gmail.com',
     password: '123',
     points: 10,
     completedDates: ['2026-07-30'],
@@ -301,6 +315,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "ט'2",
     grade: 'ט',
     username: 'tehila',
+    email: 'tehila@gmail.com',
     password: '123',
     points: 8,
     completedDates: [],
@@ -314,6 +329,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "י'1",
     grade: 'י',
     username: 'tamar',
+    email: 'tamar@gmail.com',
     password: '123',
     points: 16,
     completedDates: ['2026-07-31', '2026-07-30'],
@@ -327,6 +343,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "י'1",
     grade: 'י',
     username: 'shira',
+    email: 'shira@gmail.com',
     password: '123',
     points: 16, // Intentional TIE with Tamar for top student demo!
     completedDates: ['2026-07-31', '2026-07-30'],
@@ -340,6 +357,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "י'2",
     grade: 'י',
     username: 'naama',
+    email: 'naama@gmail.com',
     password: '123',
     points: 14,
     completedDates: ['2026-07-31'],
@@ -353,6 +371,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "י'2",
     grade: 'י',
     username: 'moriya',
+    email: 'moriya@gmail.com',
     password: '123',
     points: 11,
     completedDates: [],
@@ -366,6 +385,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יא'1",
     grade: 'יא',
     username: 'racheli',
+    email: 'racheli@gmail.com',
     password: '123',
     points: 13,
     completedDates: ['2026-07-31'],
@@ -379,6 +399,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יא'1",
     grade: 'יא',
     username: 'ella',
+    email: 'ella@gmail.com',
     password: '123',
     points: 9,
     completedDates: [],
@@ -390,6 +411,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יא'2",
     grade: 'יא',
     username: 'michal',
+    email: 'michal@gmail.com',
     password: '123',
     points: 10,
     completedDates: ['2026-07-31'],
@@ -405,6 +427,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יב'1",
     grade: 'יב',
     username: 'yael',
+    email: 'yael@gmail.com',
     password: '123',
     points: 15,
     completedDates: ['2026-07-31'],
@@ -418,6 +441,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יב'1",
     grade: 'יב',
     username: 'tal',
+    email: 'tal@gmail.com',
     password: '123',
     points: 12,
     completedDates: [],
@@ -429,6 +453,7 @@ export const INITIAL_STUDENTS: Student[] = [
     className: "יב'2",
     grade: 'יב',
     username: 'avigail',
+    email: 'avigail@gmail.com',
     password: '123',
     points: 11,
     completedDates: [],

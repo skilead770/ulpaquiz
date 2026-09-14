@@ -15,11 +15,15 @@ import {
   PrizeReportItem,
   GradeType,
   Invitation,
+  Manager,
+  inferGradeFromClass,
 } from './src/types';
 import {
   INITIAL_STUDENTS,
   INITIAL_HALACHOT,
   INITIAL_INVITATIONS,
+  INITIAL_MANAGERS,
+  INITIAL_CLASSES,
   DEFAULT_PRIZE_MILESTONES,
 } from './src/data/seedData';
 
@@ -32,6 +36,8 @@ interface DatabaseSchema {
   students: Student[];
   halachot: DailyHalacha[];
   invitations: Invitation[];
+  managers: Manager[];
+  classes: string[];
 }
 
 // In-memory cache synced with db.json and Firestore
@@ -39,6 +45,8 @@ let db: DatabaseSchema = {
   students: [],
   halachot: [],
   invitations: [],
+  managers: [],
+  classes: [...INITIAL_CLASSES],
 };
 
 // Ensure data directory and file exist
@@ -51,12 +59,28 @@ function initDB() {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
       db = JSON.parse(content);
       if (!db.invitations) db.invitations = [...INITIAL_INVITATIONS];
+      if (!db.managers || db.managers.length === 0) {
+        db.managers = [...INITIAL_MANAGERS];
+      }
+      if (!db.classes || db.classes.length === 0) {
+        db.classes = [...INITIAL_CLASSES];
+      }
+      // Ensure skilead770@gmail.com is always present
+      if (!db.managers.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+        db.managers.unshift(INITIAL_MANAGERS[0]);
+      }
+      // Clean test students
+      db.students = (db.students || []).filter(
+        (s) => !s.id.startsWith('s-reg-') && s.email !== 'skivthashem@gmail.com' && s.fullName !== 'בדיקה משתמשת'
+      );
     } catch (e) {
       console.error('Error reading DB_FILE, resetting to seed data', e);
       db = {
         students: [...INITIAL_STUDENTS],
         halachot: [...INITIAL_HALACHOT],
         invitations: [...INITIAL_INVITATIONS],
+        managers: [...INITIAL_MANAGERS],
+        classes: [...INITIAL_CLASSES],
       };
       saveDB();
     }
@@ -65,6 +89,8 @@ function initDB() {
       students: [...INITIAL_STUDENTS],
       halachot: [...INITIAL_HALACHOT],
       invitations: [...INITIAL_INVITATIONS],
+      managers: [...INITIAL_MANAGERS],
+      classes: [...INITIAL_CLASSES],
     };
     saveDB();
   }
@@ -86,11 +112,41 @@ async function initFirestore() {
     const studentsSnap = await firestoreDb.collection('students').get();
     const halachotSnap = await firestoreDb.collection('halachot').get();
     const invitationsSnap = await firestoreDb.collection('invitations').get();
+    const managersSnap = await firestoreDb.collection('managers').get();
+
+    // Clean test student document from Firestore if it exists
+    try {
+      await firestoreDb.collection('students').doc('s-reg-1789375542720').delete();
+    } catch (e) {}
+
+    // Load classes from Firestore settings
+    try {
+      const classesDoc = await firestoreDb.collection('settings').doc('classes').get();
+      if (classesDoc.exists) {
+        const data = classesDoc.data();
+        if (data && Array.isArray(data.list) && data.list.length > 0) {
+          db.classes = data.list;
+        }
+      } else {
+        await firestoreDb.collection('settings').doc('classes').set({ list: db.classes });
+      }
+    } catch (e) {
+      console.error('[Firestore] Error loading classes from Firestore:', e);
+    }
 
     if (!studentsSnap.empty && !halachotSnap.empty) {
-      console.log(`[Firestore] Loaded ${studentsSnap.size} students, ${halachotSnap.size} halachot, ${invitationsSnap.size} invitations from Firestore`);
+      console.log(`[Firestore] Loaded ${studentsSnap.size} students, ${halachotSnap.size} halachot, ${invitationsSnap.size} invitations, ${managersSnap.size} managers from Firestore`);
       const loadedStudents: Student[] = [];
-      studentsSnap.forEach((doc) => loadedStudents.push(doc.data() as Student));
+      studentsSnap.forEach((doc) => {
+        const student = doc.data() as Student;
+        // Clean test students from in-memory
+        if (!student.id.startsWith('s-reg-') && student.email !== 'skivthashem@gmail.com' && student.fullName !== 'בדיקה משתמשת') {
+          loadedStudents.push(student);
+        } else {
+          // Delete test doc from Firestore
+          doc.ref.delete().catch(() => {});
+        }
+      });
 
       const loadedHalachot: DailyHalacha[] = [];
       halachotSnap.forEach((doc) => loadedHalachot.push(doc.data() as DailyHalacha));
@@ -98,9 +154,18 @@ async function initFirestore() {
       const loadedInvitations: Invitation[] = [];
       invitationsSnap.forEach((doc) => loadedInvitations.push(doc.data() as Invitation));
 
+      const loadedManagers: Manager[] = [];
+      managersSnap.forEach((doc) => loadedManagers.push(doc.data() as Manager));
+
       db.students = loadedStudents;
       db.halachot = loadedHalachot;
       db.invitations = loadedInvitations.length > 0 ? loadedInvitations : [...INITIAL_INVITATIONS];
+      
+      // Ensure skilead770@gmail.com is in managers
+      if (!loadedManagers.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+        loadedManagers.unshift(INITIAL_MANAGERS[0]);
+      }
+      db.managers = loadedManagers.length > 0 ? loadedManagers : [...INITIAL_MANAGERS];
       saveDB();
     } else {
       console.log('[Firestore] Firestore collections empty, seeding initial data...');
@@ -127,10 +192,35 @@ async function seedFirestore() {
       const ref = firestoreDb!.collection('invitations').doc(inv.id);
       batch.set(ref, inv);
     });
+    (db.managers || INITIAL_MANAGERS).forEach((mgr) => {
+      const safeId = mgr.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+      const ref = firestoreDb!.collection('managers').doc(safeId);
+      batch.set(ref, mgr);
+    });
     await batch.commit();
     console.log('[Firestore] Successfully seeded Firestore with initial data!');
   } catch (err) {
     console.error('[Firestore] Error seeding Firestore:', err);
+  }
+}
+
+async function saveManagerToFirestore(manager: Manager) {
+  if (!firestoreDb) return;
+  try {
+    const safeId = manager.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+    await firestoreDb.collection('managers').doc(safeId).set(manager);
+  } catch (err) {
+    console.error(`[Firestore] Error saving manager ${manager.email}:`, err);
+  }
+}
+
+async function deleteManagerFromFirestore(email: string) {
+  if (!firestoreDb) return;
+  try {
+    const safeId = email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+    await firestoreDb.collection('managers').doc(safeId).delete();
+  } catch (err) {
+    console.error(`[Firestore] Error deleting manager ${email}:`, err);
   }
 }
 
@@ -308,24 +398,307 @@ async function startServer() {
     res.json({ success: true, invitations: db.invitations });
   });
 
-  // Self-Registration for Students (Pending Admin Approval or Auto-Approved via Invitation)
-  app.post('/api/register', async (req, res) => {
-    const { fullName, className, grade, username, password, invitationCode } = req.body;
-    if (!fullName || !className || !grade || !username || !password) {
-      return res.status(400).json({ error: 'נא למלא את כל שדות החובה להרשמה' });
+  // Managers API
+  app.get('/api/managers', (req, res) => {
+    res.json(db.managers || INITIAL_MANAGERS);
+  });
+
+  app.post('/api/managers', async (req, res) => {
+    const { email, name } = req.body;
+    const gCheck = validateGmail(email || '');
+    if (!gCheck.valid || !gCheck.email) {
+      return res.status(400).json({ error: gCheck.error || 'כתובת Gmail אינה תקינה' });
+    }
+    const cleanEmail = gCheck.email;
+    if ((db.managers || []).some((m) => m.email.toLowerCase() === cleanEmail)) {
+      return res.status(400).json({ error: 'מנהל זה כבר רשום במערכת' });
     }
 
-    const trimmedUsername = username.trim().toLowerCase();
-    const existingUser = db.students.find(
-      (s) => s.username.trim().toLowerCase() === trimmedUsername
+    const newMgr: Manager = {
+      email: cleanEmail,
+      name: (name || '').trim() || cleanEmail.split('@')[0],
+      role: 'admin',
+      addedAt: new Date().toISOString(),
+    };
+
+    db.managers = [...(db.managers || []), newMgr];
+    saveDB();
+    await saveManagerToFirestore(newMgr);
+    res.json({ success: true, manager: newMgr, managers: db.managers });
+  });
+
+  app.delete('/api/managers/:email', async (req, res) => {
+    const emailToDelete = req.params.email.trim().toLowerCase();
+    if (emailToDelete === 'skilead770@gmail.com') {
+      return res.status(400).json({ error: 'לא ניתן למחוק את המנהל הראשי (skilead770@gmail.com)' });
+    }
+
+    db.managers = (db.managers || []).filter((m) => m.email.toLowerCase() !== emailToDelete);
+    saveDB();
+    await deleteManagerFromFirestore(emailToDelete);
+    res.json({ success: true, managers: db.managers });
+  });
+
+  // ==========================================
+  // School Classes Management API
+  // ==========================================
+  app.get('/api/classes', (req, res) => {
+    if (!db.classes || db.classes.length === 0) {
+      db.classes = [...INITIAL_CLASSES];
+    }
+    res.json({ classes: db.classes });
+  });
+
+  app.post('/api/classes', async (req, res) => {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'נא להזין שם כיתה' });
+    }
+    const clean = name.trim();
+    if (!db.classes) db.classes = [...INITIAL_CLASSES];
+    if (!db.classes.includes(clean)) {
+      db.classes.push(clean);
+      saveDB();
+      if (firestoreDb) {
+        try {
+          await firestoreDb.collection('settings').doc('classes').set({ list: db.classes });
+        } catch (e) {
+          console.error('[Firestore] Error saving classes:', e);
+        }
+      }
+    }
+    res.json({ success: true, classes: db.classes });
+  });
+
+  app.put('/api/classes', async (req, res) => {
+    const { classes } = req.body;
+    if (!Array.isArray(classes) || classes.length === 0) {
+      return res.status(400).json({ error: 'רשימת כיתות אינה תקינה' });
+    }
+    db.classes = classes.map((c) => String(c).trim()).filter(Boolean);
+    saveDB();
+    if (firestoreDb) {
+      try {
+        await firestoreDb.collection('settings').doc('classes').set({ list: db.classes });
+      } catch (e) {
+        console.error('[Firestore] Error saving classes:', e);
+      }
+    }
+    res.json({ success: true, classes: db.classes });
+  });
+
+  app.delete('/api/classes/:name', async (req, res) => {
+    const target = decodeURIComponent(req.params.name).trim();
+    if (!db.classes) db.classes = [...INITIAL_CLASSES];
+    db.classes = db.classes.filter((c) => c !== target);
+    saveDB();
+    if (firestoreDb) {
+      try {
+        await firestoreDb.collection('settings').doc('classes').set({ list: db.classes });
+      } catch (e) {
+        console.error('[Firestore] Error deleting class:', e);
+      }
+    }
+    res.json({ success: true, classes: db.classes });
+  });
+
+  // Helper: Strict Gmail validation matching Google's rules
+  function validateGmail(emailStr: string): { valid: boolean; error?: string; email?: string } {
+    if (!emailStr || typeof emailStr !== 'string') {
+      return { valid: false, error: 'נא להזין כתובת Gmail' };
+    }
+    const trimmed = emailStr.trim().toLowerCase();
+    const fullEmail = trimmed.includes('@') ? trimmed : `${trimmed}@gmail.com`;
+    const parts = fullEmail.split('@');
+    if (parts.length !== 2) {
+      return { valid: false, error: 'כתובת דוא"ל אינה תקינה' };
+    }
+    const [username, domain] = parts;
+    if (domain !== 'gmail.com' && domain !== 'googlemail.com') {
+      return { valid: false, error: 'ההרשמה מיועדת לכתובת Gmail בלבד (סיומת @gmail.com)' };
+    }
+    if (username.length < 6 || username.length > 30) {
+      return { valid: false, error: 'שם משתמש ב-Gmail חייב להכיל בין 6 ל-30 תווים' };
+    }
+    if (username.startsWith('.') || username.endsWith('.')) {
+      return { valid: false, error: 'כתובת Gmail אינה יכולה להתחיל או להסתיים בנקודה' };
+    }
+    if (username.includes('..')) {
+      return { valid: false, error: 'כתובת Gmail אינה יכולה להכיל נקודות רצופות' };
+    }
+    if (!/^[a-z0-9.]+$/.test(username)) {
+      return { valid: false, error: 'כתובת Gmail יכולה להכיל רק אותיות באנגלית (a-z), ספרות (0-9) ונקודות' };
+    }
+    return { valid: true, email: `${username}@gmail.com` };
+  }
+
+  // Check registration status by Gmail
+  app.post('/api/auth/check-status', (req, res) => {
+    const { email } = req.body;
+    const gCheck = validateGmail(email || '');
+    if (!gCheck.valid || !gCheck.email) {
+      return res.status(400).json({ error: gCheck.error });
+    }
+    const cleanEmail = gCheck.email;
+    const cleanUsername = cleanEmail.split('@')[0];
+
+    // Check if manager
+    const manager = (db.managers || INITIAL_MANAGERS).find(
+      (m) => m.email.toLowerCase() === cleanEmail
     );
-    if (existingUser) {
-      return res.status(400).json({ error: 'שם המשתמש כבר תפוס, נא לבחור שם משתמש אחר' });
+    if (manager) {
+      return res.json({
+        registered: true,
+        isManager: true,
+        status: 'approved',
+        manager,
+      });
     }
 
-    let isAutoApproved = false;
-    let matchedInvitation: Invitation | undefined;
+    const student = db.students.find((s) => {
+      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+      const sUser = s.username ? s.username.trim().toLowerCase() : '';
+      return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
+    });
 
+    if (!student) {
+      return res.json({ registered: false });
+    }
+
+    res.json({
+      registered: true,
+      status: student.status || 'approved',
+      student: student.status === 'approved' ? student : { id: student.id, fullName: student.fullName, status: student.status, email: student.email },
+    });
+  });
+
+  // Login by Gmail / Email
+  app.post('/api/auth/login-by-email', (req, res) => {
+    const { email } = req.body;
+    const gCheck = validateGmail(email || '');
+    if (!gCheck.valid || !gCheck.email) {
+      return res.status(400).json({ error: gCheck.error });
+    }
+    const cleanEmail = gCheck.email;
+    const cleanUsername = cleanEmail.split('@')[0];
+
+    // Check if manager
+    const manager = (db.managers || INITIAL_MANAGERS).find(
+      (m) => m.email.toLowerCase() === cleanEmail
+    );
+    if (manager) {
+      return res.json({
+        success: true,
+        isManager: true,
+        role: 'admin',
+        manager,
+        message: `שלום מנהל המערכת (${manager.name || cleanEmail})! מתחברים לממשק הניהול...`,
+      });
+    }
+
+    const student = db.students.find((s) => {
+      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+      const sUser = s.username ? s.username.trim().toLowerCase() : '';
+      return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
+    });
+
+    if (!student) {
+      return res.status(404).json({
+        error: 'לא נמצאה תלמידה רשומה עם כתובת Gmail זו. נא להירשם תחילה.',
+      });
+    }
+
+    // Check approval status: Pending students CANNOT enter yet!
+    if (student.status === 'pending') {
+      return res.status(403).json({
+        status: 'pending',
+        error: 'בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.',
+        studentName: student.fullName,
+      });
+    }
+
+    if (student.status === 'rejected') {
+      return res.status(403).json({
+        status: 'rejected',
+        error: 'בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.',
+      });
+    }
+
+    res.json({ success: true, student });
+  });
+
+  // Self-Registration for Students (Simple: Full Name + GMAIL) - REQUIRES ADMIN APPROVAL!
+  app.post('/api/register', async (req, res) => {
+    const { fullName, email, className, grade, username, password, invitationCode } = req.body;
+    if (!fullName || (!email && !username)) {
+      return res.status(400).json({ error: 'נא למלא שם מלא וכתובת Gmail להרשמה' });
+    }
+
+    const gCheck = validateGmail(email || username || '');
+    if (!gCheck.valid || !gCheck.email) {
+      return res.status(400).json({ error: gCheck.error });
+    }
+    const effectiveEmail = gCheck.email;
+
+    // Check if a manager is attempting to log in via the register form
+    const manager = (db.managers || INITIAL_MANAGERS).find(
+      (m) => m.email.toLowerCase() === effectiveEmail
+    );
+    if (manager) {
+      return res.json({
+        success: true,
+        isManager: true,
+        role: 'admin',
+        manager,
+        message: `כתובת Gmail זו (${effectiveEmail}) שייכת למנהל מערכת. מתחברים לממשק הניהול...`,
+      });
+    }
+
+    // Check if already registered by email or username
+    const existingStudent = db.students.find((s) => {
+      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+      const sUser = s.username ? s.username.trim().toLowerCase() : '';
+      return (
+        sEmail === effectiveEmail ||
+        sUser === effectiveEmail ||
+        sUser === effectiveEmail.split('@')[0]
+      );
+    });
+
+    if (existingStudent) {
+      if (existingStudent.status === 'approved') {
+        return res.json({
+          success: true,
+          alreadyRegistered: true,
+          status: 'approved',
+          message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+          student: existingStudent,
+        });
+      } else if (existingStudent.status === 'pending') {
+        return res.json({
+          success: true,
+          alreadyRegistered: true,
+          status: 'pending',
+          message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+          student: existingStudent,
+        });
+      } else {
+        return res.status(403).json({
+          status: 'rejected',
+          error: 'בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.',
+        });
+      }
+    }
+
+    // Generate unique username from email
+    const baseUser = effectiveEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
+    let finalUsername = baseUser;
+    let counter = 1;
+    while (db.students.some((s) => s.username.toLowerCase() === finalUsername.toLowerCase())) {
+      finalUsername = `${baseUser}${counter++}`;
+    }
+
+    let matchedInvitation: Invitation | undefined;
     if (invitationCode) {
       const cleanCode = invitationCode.trim().toUpperCase();
       matchedInvitation = (db.invitations || []).find(
@@ -333,7 +706,6 @@ async function startServer() {
       );
       if (matchedInvitation) {
         if (matchedInvitation.maxUses === 0 || matchedInvitation.usedCount < matchedInvitation.maxUses) {
-          isAutoApproved = true;
           matchedInvitation.usedCount += 1;
           saveDB();
           await saveInvitationToFirestore(matchedInvitation);
@@ -341,17 +713,22 @@ async function startServer() {
       }
     }
 
+    const chosenClass = (className || matchedInvitation?.className || (db.classes && db.classes[0]) || "ט'1").trim();
+    const derivedGrade = inferGradeFromClass(chosenClass);
+
+    // Explicit user requirement: Student does NOT enter immediately! Must wait for admin approval!
     const newStudent: Student = {
       id: `s-reg-${Date.now()}`,
       fullName: fullName.trim(),
-      className: className.trim(),
-      grade: grade as GradeType,
-      username: username.trim(),
-      password: password.trim(),
+      className: chosenClass,
+      grade: derivedGrade,
+      username: finalUsername,
+      email: effectiveEmail,
+      password: password ? password.trim() : '123',
       points: 0,
       completedDates: [],
       submissions: {},
-      status: isAutoApproved ? 'approved' : 'pending',
+      status: 'pending', // Strict requirement: Pending admin approval!
       registeredAt: new Date().toISOString(),
       invitationCode: invitationCode ? invitationCode.trim().toUpperCase() : undefined,
     };
@@ -362,10 +739,9 @@ async function startServer() {
 
     res.json({
       success: true,
-      autoApproved: isAutoApproved,
-      message: isAutoApproved
-        ? 'הרשמתך אושרה אוטומטית באמצעות קוד ההזמנה! הרי אנו מברכים אותך בהצטרפות למבצע.'
-        : 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה',
+      status: 'pending',
+      autoApproved: false,
+      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
       student: newStudent,
     });
   });
@@ -397,9 +773,10 @@ async function startServer() {
   // Add / edit individual student (Admin)
   app.post('/api/students', async (req, res) => {
     const studentData = req.body;
-    if (!studentData.fullName || !studentData.className || !studentData.grade) {
-      return res.status(400).json({ error: 'Missing required student fields' });
+    if (!studentData.fullName || !studentData.className) {
+      return res.status(400).json({ error: 'נא למלא שם מלא וכיתה' });
     }
+    const computedGrade = studentData.grade || inferGradeFromClass(studentData.className);
 
     let targetStudent: Student;
 
@@ -408,6 +785,8 @@ async function startServer() {
       targetStudent = {
         ...db.students[existingIdx],
         ...studentData,
+        grade: computedGrade,
+        points: typeof studentData.points === 'number' ? studentData.points : db.students[existingIdx].points,
       };
       db.students[existingIdx] = targetStudent;
     } else {
@@ -415,10 +794,11 @@ async function startServer() {
         id: `s-${Date.now()}`,
         fullName: studentData.fullName,
         className: studentData.className,
-        grade: studentData.grade,
+        grade: computedGrade,
+        email: studentData.email || '',
         username: studentData.username || `user_${Date.now()}`,
         password: studentData.password || '123',
-        points: studentData.points || 0,
+        points: Number(studentData.points) || 0,
         completedDates: [],
         submissions: {},
         status: studentData.status || 'approved',
@@ -797,6 +1177,7 @@ async function startServer() {
       students: JSON.parse(JSON.stringify(INITIAL_STUDENTS)),
       halachot: JSON.parse(JSON.stringify(INITIAL_HALACHOT)),
       invitations: JSON.parse(JSON.stringify(INITIAL_INVITATIONS)),
+      managers: JSON.parse(JSON.stringify(INITIAL_MANAGERS)),
     };
     saveDB();
     await seedFirestore();

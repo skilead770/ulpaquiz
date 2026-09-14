@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   UserPlus,
   Clock,
+  LogOut,
 } from 'lucide-react';
 import { Student } from '../types';
 
@@ -22,6 +23,7 @@ interface NavbarProps {
   activeTab: 'study' | 'leaderboard' | 'register' | 'admin';
   onChangeTab: (tab: 'study' | 'leaderboard' | 'register' | 'admin') => void;
   onResetDemo: () => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -31,6 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onChangeTab,
   onResetDemo,
+  onLogout,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -140,11 +143,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <div className="hidden sm:block">
                 <div className="text-xs font-bold leading-tight flex items-center gap-1">
-                  {isAdmin ? 'צוות הנהלה' : currentStudent?.fullName}
+                  {isAdmin ? 'מנהל: skilead770' : currentStudent?.fullName}
                   <ChevronDown className="w-3.5 h-3.5 text-amber-700 group-hover:translate-y-0.5 transition-transform" />
                 </div>
                 <div className="text-[10px] text-amber-800/90 font-semibold">
-                  {isAdmin ? 'הרשאות מלאות' : `כיתה ${currentStudent?.className}`}
+                  {isAdmin ? 'skilead770@gmail.com (מנהל ראשי)' : `כיתה ${currentStudent?.className}`}
                 </div>
               </div>
 
@@ -240,6 +243,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                     {isAdmin && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
                   </button>
+
+                  {onLogout && (
+                    <button
+                      onClick={() => {
+                        setShowUserDropdown(false);
+                        onLogout();
+                      }}
+                      className="w-full text-right px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4 text-slate-500" />
+                      <span>החלפת משתמש / התנתקות למסך כניסה</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={handleReset}

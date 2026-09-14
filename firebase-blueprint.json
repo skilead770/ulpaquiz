@@ -10,6 +10,7 @@
         "className": { "type": "string" },
         "grade": { "type": "string", "enum": ["ט", "י", "יא", "יב"] },
         "username": { "type": "string" },
+        "email": { "type": "string" },
         "password": { "type": "string" },
         "points": { "type": "number" },
         "status": { "type": "string", "enum": ["approved", "pending", "rejected"] },
@@ -53,6 +54,18 @@
         "active": { "type": "boolean" }
       },
       "required": ["id", "code", "className", "grade"]
+    },
+    "managers": {
+      "title": "Managers",
+      "description": "System administrators and ulpana staff members",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["email", "name", "role"]
     }
   }
 }

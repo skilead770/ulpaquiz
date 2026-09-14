@@ -92,8 +92,13 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     setError(null);
 
     try {
+      const cleanEmail = username.trim().includes('@')
+        ? username.trim().toLowerCase()
+        : `${username.trim().toLowerCase()}@gmail.com`;
+
       const res = await registerStudentApi({
         fullName: fullName.trim(),
+        email: cleanEmail,
         grade,
         className: className.trim(),
         username: username.trim(),

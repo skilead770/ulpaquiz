@@ -469,5 +469,55 @@
         }
       ]
     }
+  ],
+  "invitations": [
+    {
+      "id": "inv-1",
+      "code": "ULPA-2026-T1",
+      "className": "ט'1",
+      "grade": "ט",
+      "maxUses": 50,
+      "usedCount": 2,
+      "createdAt": "2026-08-01",
+      "active": true
+    },
+    {
+      "id": "inv-2",
+      "code": "ULPA-2026-Y1",
+      "className": "י'1",
+      "grade": "י",
+      "maxUses": 50,
+      "usedCount": 1,
+      "createdAt": "2026-08-01",
+      "active": true
+    },
+    {
+      "id": "inv-3",
+      "code": "ULPA-GENERAL",
+      "className": "כללית",
+      "grade": "ט",
+      "maxUses": 200,
+      "usedCount": 0,
+      "createdAt": "2026-08-01",
+      "active": true
+    }
+  ],
+  "managers": [
+    {
+      "email": "skilead770@gmail.com",
+      "name": "מנהל ראשי (skilead770)",
+      "role": "superadmin",
+      "addedAt": "2026-09-14T01:13:00Z"
+    }
+  ],
+  "classes": [
+    "ט'1",
+    "ט'2",
+    "י'1",
+    "י'2",
+    "יא'1",
+    "יא'2",
+    "יב'1",
+    "יב'2"
   ]
 }
