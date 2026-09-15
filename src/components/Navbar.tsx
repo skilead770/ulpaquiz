@@ -114,18 +114,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>הרשמה למערכת</span>
             </button>
 
-            <button
-              onClick={() => onChangeTab('admin')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl font-bold text-sm transition-all ${
-                activeTab === 'admin'
-                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
-                  : 'text-amber-900/80 hover:bg-amber-100/70 hover:text-amber-950'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span className="hidden md:inline">ממשק מנהל</span>
-              <span className="md:hidden">ניהול</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => onChangeTab('admin')}
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                  activeTab === 'admin'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                    : 'text-amber-900/80 hover:bg-amber-100/70 hover:text-amber-950'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span className="hidden md:inline">ממשק מנהל</span>
+                <span className="md:hidden">ניהול</span>
+              </button>
+            )}
           </nav>
 
           {/* User Profile Selector & Quick Switcher */}
@@ -228,21 +230,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">חדש</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      onSelectUser('admin');
-                      setShowUserDropdown(false);
-                    }}
-                    className={`w-full text-right px-3 py-2 text-xs flex items-center justify-between hover:bg-amber-100/70 rounded-xl transition-colors ${
-                      isAdmin ? 'bg-amber-200/80 font-bold text-amber-950' : 'text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-amber-700" />
-                      <span className="font-bold">ממשק צוות ניהול האולפנה</span>
-                    </div>
-                    {isAdmin && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        onSelectUser('admin');
+                        setShowUserDropdown(false);
+                      }}
+                      className="w-full text-right px-3 py-2 text-xs flex items-center justify-between bg-amber-200/80 font-bold text-amber-950 rounded-xl transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-amber-700" />
+                        <span className="font-bold">ממשק צוות ניהול האולפנה</span>
+                      </div>
+                      <CheckCircle2 className="w-4 h-4 text-amber-700" />
+                    </button>
+                  )}
 
                   {onLogout && (
                     <button

@@ -459,4 +459,25 @@ export const INITIAL_STUDENTS: Student[] = [
     completedDates: [],
     submissions: {},
   },
+  {
+    id: 's-skivthashem',
+    fullName: 'רשומה (skivthashem)',
+    className: "ט'1",
+    grade: 'ט',
+    username: 'skivthashem',
+    email: 'skivthashem@gmail.com',
+    password: '123',
+    points: 4,
+    status: 'approved',
+    completedDates: ['2026-07-31'],
+    submissions: {
+      '2026-07-31': {
+        date: '2026-07-31',
+        score: 4,
+        earnedPoints: 2,
+        submittedAt: '09:15',
+        answers: { q1: 0, q2: 1, q3: 1, q4: 1 },
+      },
+    },
+  },
 ];

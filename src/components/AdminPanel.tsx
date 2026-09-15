@@ -71,8 +71,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'students' | 'prizes' | 'invitations' | 'managers'
+    'halachot' | 'students' | 'prizes' | 'invitations' | 'managers' | 'classes'
   >('halachot');
+
+  // School Classes Management State
+  const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
+  const [newClassName, setNewClassName] = useState('');
+  const [isAddingClass, setIsAddingClass] = useState(false);
+  const [classMsg, setClassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  React.useEffect(() => {
+    fetchClassesApi().then((list) => {
+      if (list && list.length > 0) setClassesList(list);
+    });
+  }, []);
+
+  const handleAddClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClassName.trim()) return;
+    setIsAddingClass(true);
+    setClassMsg(null);
+    try {
+      const updated = await addClassApi(newClassName.trim());
+      setClassesList(updated);
+      setNewClassName('');
+      setClassMsg({ type: 'success', text: `הכיתה "${newClassName.trim()}" נוספה בהצלחה!` });
+    } catch (err: any) {
+      setClassMsg({ type: 'error', text: err.message || 'שגיאה בהוספת כיתה' });
+    } finally {
+      setIsAddingClass(false);
+    }
+  };
+
+  const handleDeleteClass = async (classNameToDelete: string) => {
+    const studentsInClass = students.filter((s) => s.className === classNameToDelete).length;
+    let confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
+    if (studentsInClass > 0) {
+      confirmMsg += `\nשים לב: ישנן ${studentsInClass} תלמידות המשויכות כרגע לכיתה זו.`;
+    }
+    if (confirm(confirmMsg)) {
+      try {
+        const updated = await deleteClassApi(classNameToDelete);
+        setClassesList(updated);
+        setClassMsg({ type: 'success', text: `הכיתה "${classNameToDelete}" הוסרה בהצלחה!` });
+      } catch (err: any) {
+        setClassMsg({ type: 'error', text: err.message || 'שגיאה במחיקת כיתה' });
+      }
+    }
+  };
 
   // Managers State
   const [managers, setManagers] = useState<Manager[]>([]);
@@ -433,7 +479,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return matchesSearch && matchesClass;
   });
 
-  const uniqueClasses = Array.from(new Set(students.map((s) => s.className))).sort();
+  const uniqueClasses = Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean).sort();
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
@@ -529,6 +575,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <ShieldCheck className="w-4 h-4 text-yellow-300" />
             <span>מנהלי מערכת ({managers.length || 1})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveAdminTab('classes')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeAdminTab === 'classes'
+                ? 'bg-amber-600 text-white shadow-md'
+                : 'text-amber-200 hover:bg-white/10'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4 text-amber-300" />
+            <span>ניהול כיתות ({classesList.length})</span>
           </button>
         </div>
         </div>
@@ -1125,32 +1183,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={newStudent.className}
+                        onChange={(e) => {
+                          const cls = e.target.value;
+                          setNewStudent({
+                            ...newStudent,
+                            className: cls,
+                            grade: inferGradeFromClass(cls),
+                          });
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      >
+                        {classesList.map((c) => (
+                          <option key={c} value={c}>
+                            כיתה {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         שכבה <span className="text-rose-500">*</span>
                       </label>
                       <select
                         value={newStudent.grade}
                         onChange={(e) => setNewStudent({ ...newStudent, grade: e.target.value as GradeType })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
                       >
                         <option value="ט">שכבת ט'</option>
                         <option value="י">שכבת י'</option>
                         <option value="יא">שכבת יא'</option>
                         <option value="יב">שכבת יב'</option>
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        כיתה <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="לדוגמה: ט'1"
-                        value={newStudent.className}
-                        onChange={(e) => setNewStudent({ ...newStudent, className: e.target.value })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      />
                     </div>
                   </div>
 
@@ -1287,6 +1355,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={editingStudent.className}
+                        onChange={(e) => {
+                          const cls = e.target.value;
+                          setEditingStudent({
+                            ...editingStudent,
+                            className: cls,
+                            grade: inferGradeFromClass(cls),
+                          });
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      >
+                        {classesList.map((c) => (
+                          <option key={c} value={c}>
+                            כיתה {c}
+                          </option>
+                        ))}
+                        {!classesList.includes(editingStudent.className) && (
+                          <option value={editingStudent.className}>
+                            כיתה {editingStudent.className} (מותאם אישית)
+                          </option>
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         שכבה <span className="text-rose-500">*</span>
                       </label>
                       <select
@@ -1304,22 +1401,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <option value="יא">שכבת י"א</option>
                         <option value="יב">שכבת י"ב</option>
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        כיתה <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="לדוגמה: ט'1"
-                        value={editingStudent.className}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, className: e.target.value })
-                        }
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      />
                     </div>
                   </div>
 
@@ -1610,35 +1691,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
+                        כיתה *
+                      </label>
+                      <select
+                        value={newInv.className}
+                        onChange={(e) => {
+                          const cls = e.target.value;
+                          setNewInv({
+                            ...newInv,
+                            className: cls,
+                            grade: inferGradeFromClass(cls),
+                          });
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      >
+                        {classesList.map((c) => (
+                          <option key={c} value={c}>
+                            כיתה {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         שכבה *
                       </label>
                       <select
                         value={newInv.grade}
                         onChange={(e) => {
                           const g = e.target.value as GradeType;
-                          setNewInv({ ...newInv, grade: g, className: `${g}'1` });
+                          setNewInv({ ...newInv, grade: g });
                         }}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
                       >
                         <option value="ט">שכבת ט'</option>
                         <option value="י">שכבת י'</option>
                         <option value="יא">שכבת יא'</option>
                         <option value="יב">שכבת יב'</option>
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        כיתה *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="ט'1"
-                        value={newInv.className}
-                        onChange={(e) => setNewInv({ ...newInv, className: e.target.value })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      />
                     </div>
                   </div>
 
@@ -1897,6 +1988,142 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>הסר מנהל</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          TAB 6: SCHOOL CLASSES MANAGEMENT
+      ==================================================== */}
+      {activeAdminTab === 'classes' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="bg-white rounded-3xl p-6 border border-amber-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-500 text-white flex items-center justify-center font-bold shadow-sm">
+                  <GraduationCap className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                    <span>ניהול כיתות האולפנה</span>
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                      {classesList.length} כיתות פעילות
+                    </span>
+                  </h3>
+                  <p className="text-xs text-amber-800">
+                    הכיתות המוגדרות כאן מופיעות ישירות בטופס ההרשמה של התלמידות, במסכי הסינון, בלוח המובילים וביצירת קודי הזמנה.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Add New Class Form */}
+            <form onSubmit={handleAddClass} className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-3">
+              <h4 className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
+                <Plus className="w-4 h-4 text-amber-700" />
+                <span>הוספת כיתה חדשה</span>
+              </h4>
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="לדוגמה: ט'3, י'3, ח'1, כיתה מדעית..."
+                  value={newClassName}
+                  onChange={(e) => setNewClassName(e.target.value)}
+                  className="w-full sm:flex-1 p-2.5 rounded-xl border border-amber-300 bg-white text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+                <button
+                  type="submit"
+                  disabled={isAddingClass || !newClassName.trim()}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 transition-all shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isAddingClass ? 'מוסיף...' : 'הוסף כיתה'}</span>
+                </button>
+              </div>
+
+              {classMsg && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                    classMsg.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {classMsg.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{classMsg.text}</span>
+                </div>
+              )}
+            </form>
+          </div>
+
+          {/* Classes Grid */}
+          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-xs space-y-4">
+            <h4 className="text-sm font-extrabold text-amber-950 font-['Heebo']">
+              רשימת הכיתות הפעילות
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {classesList.map((cls) => {
+                const count = students.filter((s) => s.className === cls).length;
+                const derivedGrade = inferGradeFromClass(cls);
+                return (
+                  <div
+                    key={cls}
+                    className="bg-amber-50/30 hover:bg-amber-50/70 border border-amber-200/80 p-4 rounded-2xl transition-all flex flex-col justify-between space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
+                          {derivedGrade}
+                        </div>
+                        <div>
+                          <span className="font-black text-slate-900 text-base">
+                            כיתה {cls}
+                          </span>
+                          <span className="block text-[11px] text-amber-800 font-bold">
+                            שכבת {derivedGrade}'
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClass(cls)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        title={`מחיקת כיתה ${cls}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-amber-100 text-xs">
+                      <span className="text-slate-500 font-semibold flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5 text-amber-700" />
+                        <span>{count} תלמידות</span>
+                      </span>
+
+                      {count > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStudentFilterClass(cls);
+                            setActiveAdminTab('students');
+                          }}
+                          className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline"
+                        >
+                          צפה בתלמידות ←
                         </button>
                       )}
                     </div>

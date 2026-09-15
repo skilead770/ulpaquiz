@@ -38,7 +38,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "emuna@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s2",
@@ -65,7 +67,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "hodaya@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s3",
@@ -78,7 +82,9 @@
       "completedDates": [
         "2026-07-30"
       ],
-      "submissions": {}
+      "submissions": {},
+      "email": "noa@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s4",
@@ -89,7 +95,9 @@
       "password": "123",
       "points": 8,
       "completedDates": [],
-      "submissions": {}
+      "submissions": {},
+      "email": "tehila@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s5",
@@ -116,7 +124,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "tamar@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s6",
@@ -143,7 +153,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "shira@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s7",
@@ -169,7 +181,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "naama@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s8",
@@ -180,7 +194,9 @@
       "password": "123",
       "points": 11,
       "completedDates": [],
-      "submissions": {}
+      "submissions": {},
+      "email": "moriya@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s9",
@@ -206,7 +222,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "racheli@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s10",
@@ -217,7 +235,9 @@
       "password": "123",
       "points": 9,
       "completedDates": [],
-      "submissions": {}
+      "submissions": {},
+      "email": "ella@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s11",
@@ -243,7 +263,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "michal@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s12",
@@ -269,7 +291,9 @@
             "q4": 1
           }
         }
-      }
+      },
+      "email": "yael@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s13",
@@ -280,7 +304,9 @@
       "password": "123",
       "points": 12,
       "completedDates": [],
-      "submissions": {}
+      "submissions": {},
+      "email": "tal@gmail.com",
+      "approvalStatus": "approved"
     },
     {
       "id": "s14",
@@ -291,7 +317,37 @@
       "password": "123",
       "points": 11,
       "completedDates": [],
-      "submissions": {}
+      "submissions": {},
+      "email": "avigail@gmail.com",
+      "approvalStatus": "approved"
+    },
+    {
+      "id": "s-skivthashem",
+      "fullName": "רשומה (skivthashem)",
+      "className": "ט'1",
+      "grade": "ט",
+      "username": "skivthashem",
+      "email": "skivthashem@gmail.com",
+      "password": "123",
+      "points": 4,
+      "approvalStatus": "approved",
+      "completedDates": [
+        "2026-07-31"
+      ],
+      "submissions": {
+        "2026-07-31": {
+          "date": "2026-07-31",
+          "score": 4,
+          "earnedPoints": 2,
+          "submittedAt": "09:15",
+          "answers": {
+            "q1": 0,
+            "q2": 1,
+            "q3": 1,
+            "q4": 1
+          }
+        }
+      }
     }
   ],
   "halachot": [
@@ -518,6 +574,7 @@
     "יא'1",
     "יא'2",
     "יב'1",
-    "יב'2"
+    "יב'2",
+    "י\"א 3"
   ]
 }

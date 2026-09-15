@@ -31,6 +31,38 @@ import {
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
 
+// Token Management for secure API requests
+let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halacha_auth_token') : null;
+
+export function setAuthToken(token: string | null) {
+  currentAuthToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem('halacha_auth_token', token);
+    } else {
+      localStorage.removeItem('halacha_auth_token');
+    }
+  }
+}
+
+export function getAuthToken(): string | null {
+  if (!currentAuthToken && typeof window !== 'undefined') {
+    currentAuthToken = localStorage.getItem('halacha_auth_token');
+  }
+  return currentAuthToken;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // Helper to determine if a response is JSON
 async function parseJsonResponse(res: Response) {
   const contentType = res.headers.get('content-type') || '';
@@ -373,7 +405,7 @@ export async function bulkImportStudentsApi(students: Partial<Student>[]) {
   try {
     const res = await fetch('/api/students/bulk-import', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ students }),
     });
     if (res.ok) {
@@ -408,7 +440,7 @@ export async function addStudentApi(student: Partial<Student>) {
   try {
     const res = await fetch('/api/students', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(student),
     });
     if (res.ok) {
@@ -453,6 +485,7 @@ export async function deleteStudentApi(id: string) {
   try {
     const res = await fetch(`/api/students/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -470,7 +503,7 @@ export async function saveHalachaApi(halacha: DailyHalacha) {
   try {
     const res = await fetch('/api/halachot', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(halacha),
     });
     if (res.ok) {
@@ -489,6 +522,7 @@ export async function deleteHalachaApi(id: string) {
   try {
     const res = await fetch(`/api/halachot/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -505,7 +539,7 @@ export async function deleteHalachaApi(id: string) {
 export async function generateAiHalachaApi(topic: string, date: string) {
   const res = await fetch('/api/admin/generate-ai-halacha', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ topic, date }),
   });
   if (!res.ok) {
@@ -517,7 +551,9 @@ export async function generateAiHalachaApi(topic: string, date: string) {
 
 export async function fetchInvitationsApi(): Promise<Invitation[]> {
   try {
-    const res = await fetch('/api/invitations');
+    const res = await fetch('/api/invitations', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -551,7 +587,7 @@ export async function createInvitationApi(invitationData: {
   try {
     const res = await fetch('/api/invitations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(invitationData),
     });
     if (res.ok) {
@@ -582,6 +618,7 @@ export async function deleteInvitationApi(id: string) {
   try {
     const res = await fetch(`/api/invitations/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -844,6 +881,7 @@ export async function approveStudentApi(id: string) {
   try {
     const res = await fetch(`/api/students/${id}/approve`, {
       method: 'POST',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -861,6 +899,7 @@ export async function rejectStudentApi(id: string) {
   try {
     const res = await fetch(`/api/students/${id}/reject`, {
       method: 'POST',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -878,6 +917,7 @@ export async function resetDemoApi() {
   try {
     const res = await fetch('/api/reset-demo', {
       method: 'POST',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -899,7 +939,9 @@ export async function resetDemoApi() {
 
 export async function fetchManagersApi(): Promise<Manager[]> {
   try {
-    const res = await fetch('/api/managers');
+    const res = await fetch('/api/managers', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -930,7 +972,7 @@ export async function addManagerApi(
   try {
     const res = await fetch('/api/managers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ email, name }),
     });
     if (res.ok) {
@@ -965,6 +1007,7 @@ export async function deleteManagerApi(
   try {
     const res = await fetch(`/api/managers/${encodeURIComponent(email)}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -1028,7 +1071,7 @@ export async function addClassApi(name: string): Promise<string[]> {
   try {
     const res = await fetch('/api/classes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ name: clean }),
     });
     if (res.ok) {
@@ -1057,6 +1100,7 @@ export async function deleteClassApi(name: string): Promise<string[]> {
   try {
     const res = await fetch(`/api/classes/${encodeURIComponent(clean)}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
@@ -1080,7 +1124,7 @@ export async function updateClassesApi(classes: string[]): Promise<string[]> {
   try {
     const res = await fetch('/api/classes', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ classes }),
     });
     if (res.ok) {

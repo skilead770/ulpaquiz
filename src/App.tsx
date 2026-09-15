@@ -6,7 +6,9 @@ import {
   fetchLeaderboardApi,
   fetchPrizesApi,
   resetDemoApi,
+  setAuthToken,
 } from './lib/api';
+import { signOutSSO } from './lib/authService';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { QuizModal } from './components/QuizModal';
@@ -81,17 +83,26 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (user: Student | 'admin') => {
+  const handleLoginSuccess = (user: Student | 'admin', token?: string) => {
     const id = typeof user === 'string' ? user : user.id;
     setCurrentStudentId(id);
     localStorage.setItem('halacha_current_user', id);
+    if (token) {
+      setAuthToken(token);
+    }
     setActiveTab(id === 'admin' ? 'admin' : 'study');
     loadData();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setCurrentStudentId(null);
     localStorage.removeItem('halacha_current_user');
+    setAuthToken(null);
+    try {
+      await signOutSSO();
+    } catch (e) {
+      // ignore
+    }
   };
 
   const handleQuizSubmitted = async (

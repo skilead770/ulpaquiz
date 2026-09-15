@@ -1,8 +1,52 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isManager() {
+      return isAuthenticated() && (
+        request.auth.token.email.lower() == 'skilead770@gmail.com' ||
+        exists(/databases/$(database)/documents/managers/$(request.auth.token.email.lower().replace('[^a-zA-Z0-9_]', '_')))
+      );
+    }
+
+    // Halachot: Anyone can read daily halachot for learning; only authenticated managers can write
+    match /halachot/{halachaId} {
+      allow read: if true;
+      allow write: if isManager();
+    }
+
+    // Settings (classes list, etc.): Read open; only managers can modify
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isManager();
+    }
+
+    // Invitations: Anyone can read/validate codes; only managers can create or delete invitations
+    match /invitations/{invitationId} {
+      allow read: if true;
+      allow write: if isManager();
+    }
+
+    // Managers list: Only authorized managers can read or write
+    match /managers/{managerId} {
+      allow read, write: if isManager();
+    }
+
+    // Students collection:
+    // - Read allowed for leaderboards & authentication check
+    // - Student registration: allow creation
+    // - Updates / deletions / approval: only authorized managers or owner
+    match /students/{studentId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isManager() || (isAuthenticated() && request.auth.token.email.lower() == resource.data.email.lower());
+      allow delete: if isManager();
     }
   }
 }
+

@@ -15,13 +15,15 @@ import {
   HelpCircle,
   Check,
   GraduationCap,
+  Lock,
 } from 'lucide-react';
 import { Student, DEFAULT_CLASSES } from '../types';
 import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
+import { signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
 
 interface EntryScreenProps {
-  onLoginSuccess: (student: Student | 'admin') => void;
+  onLoginSuccess: (student: Student | 'admin', token?: string) => void;
   students: Student[];
 }
 
@@ -29,7 +31,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
   onLoginSuccess,
   students,
 }) => {
-  const [mode, setMode] = useState<'register' | 'login' | 'pending'>('register');
+  const [mode, setMode] = useState<'register' | 'login' | 'pending' | 'admin_login'>('register');
 
   // Simple registration fields: Full Name, GMAIL address, and Class from managed list
   const [fullName, setFullName] = useState('');
@@ -57,6 +59,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
   } | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -86,6 +89,80 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       setter(`${username}@gmail.com`);
     } else {
       setter(`${clean}@gmail.com`);
+    }
+  };
+
+  /**
+   * Google SSO Handler (OAuth Sign In Popup)
+   * Real, cryptographic Google authentication
+   */
+  const handleGoogleSSO = async (expectedRole?: 'admin' | 'any') => {
+    setError(null);
+    setSuccessMsg(null);
+    setStatusCheckMsg(null);
+    setIsGoogleLoading(true);
+
+    try {
+      const firebaseUser = await signInWithGoogleSSO();
+      const idToken = await firebaseUser.getIdToken();
+      const userEmail = (firebaseUser.email || '').trim().toLowerCase();
+
+      // Verify token with backend server
+      const verifyRes = await verifyBackendToken(idToken);
+
+      if (verifyRes.role === 'admin') {
+        setSuccessMsg(`שלום ${verifyRes.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
+        setTimeout(() => {
+          onLoginSuccess('admin', idToken);
+        }, 600);
+        return;
+      }
+
+      if (expectedRole === 'admin') {
+        setError(`החשבון ${userEmail} אינו מורשה כמנהל מערכת. רק מנהלים מורשים (כגון skilead770@gmail.com) יכולים לגשת לממשק הניהול.`);
+        return;
+      }
+
+      if (verifyRes.role === 'student' && verifyRes.student) {
+        setSuccessMsg(`שלום ${verifyRes.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
+        setTimeout(() => {
+          onLoginSuccess(verifyRes.student!, idToken);
+        }, 500);
+        return;
+      }
+
+      if (verifyRes.role === 'pending' || (verifyRes.student && verifyRes.student.status === 'pending')) {
+        setPendingStudent({
+          fullName: verifyRes.name || verifyRes.student?.fullName || '',
+          email: userEmail,
+        });
+        setMode('pending');
+        return;
+      }
+
+      if (verifyRes.role === 'unauthorized') {
+        // Not registered yet! Pre-fill registration form
+        setGmail(userEmail);
+        if (firebaseUser.displayName) {
+          setFullName(firebaseUser.displayName);
+        }
+        setMode('register');
+        setError(`החשבון ${userEmail} אינו רשום עדיין. מלאי את פרטייך והירשמי למבצע.`);
+        return;
+      }
+
+      throw new Error(verifyRes.error || 'אימות Google נכשל');
+    } catch (err: any) {
+      console.error('[Google SSO Error]', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed')) {
+        setError('חלון ההתחברות של Google נסגר. נא לנסות שוב.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('הדפדפן חסם את חלון ההתחברות הקופץ של Google. אנא אפשרי חלונות קופצים (Popups) ורענני.');
+      } else {
+        setError(err.message || 'ההתחברות באמצעות Google נכשלה');
+      }
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -121,10 +198,8 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
 
       // Check if this is a manager
       if (res.isManager || validation.normalizedEmail.toLowerCase() === 'skilead770@gmail.com') {
-        setSuccessMsg(`שלום מנהל המערכת! כתובת זו (${validation.normalizedEmail}) מוגדרת כמנהל. מתחברים לממשק הניהול...`);
-        setTimeout(() => {
-          onLoginSuccess('admin');
-        }, 700);
+        setSuccessMsg(`שלום מנהל המערכת! כתובת זו (${validation.normalizedEmail}) מוגדרת כמנהל. עליך להתחבר עם Google SSO המאובטח.`);
+        setMode('admin_login');
         return;
       }
 
@@ -164,14 +239,19 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       return;
     }
 
+    // Direct managers to secure SSO
+    if (validation.normalizedEmail.toLowerCase() === 'skilead770@gmail.com') {
+      setMode('admin_login');
+      setError('ממשק המנהל מאובטח ודורש זיהוי Google SSO מלא. לחצי על כפתור ההתחברות המאובטח להלן.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const res = await loginByEmailApi(validation.normalizedEmail);
-      if (res.isManager || validation.normalizedEmail.toLowerCase() === 'skilead770@gmail.com') {
-        setSuccessMsg(`שלום מנהל המערכת (${res.manager?.name || validation.normalizedEmail})! מתחברים לממשק הניהול...`);
-        setTimeout(() => {
-          onLoginSuccess('admin');
-        }, 600);
+      if (res.isManager) {
+        setMode('admin_login');
+        setError('ממשק המנהל מאובטח ודורש זיהוי Google SSO מלא.');
         return;
       }
       if (res.student) {
@@ -263,14 +343,14 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 py-3 px-4 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-2 ${
+              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
                 mode === 'register'
                   ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
                   : 'text-amber-900/70 hover:text-amber-950'
               }`}
             >
               <UserPlus className="w-4 h-4 text-amber-600" />
-              <span>הרשמה בפעם הראשונה</span>
+              <span>הרשמה חדשה</span>
             </button>
 
             <button
@@ -280,14 +360,31 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 py-3 px-4 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-2 ${
+              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
                 mode === 'login'
                   ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
                   : 'text-amber-900/70 hover:text-amber-950'
               }`}
             >
               <LogIn className="w-4 h-4 text-amber-600" />
-              <span>כבר רשומה? כניסה</span>
+              <span>כניסת תלמידה</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMode('admin_login');
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+                mode === 'admin_login'
+                  ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
+                  : 'text-amber-900/70 hover:text-amber-950'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-amber-600" />
+              <span>כניסת מנהל</span>
             </button>
           </div>
         )}
@@ -492,10 +589,52 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 </p>
               </div>
 
+              {/* Google SSO Button for Registration */}
+              <div className="pt-2">
+                <div className="relative flex py-2 items-center">
+                  <div className="grow border-t border-amber-200"></div>
+                  <span className="shrink mx-3 text-[11px] font-bold text-amber-800/80 bg-white px-2">
+                    או הרשמה חכמה בלחיצה אחת
+                  </span>
+                  <div className="grow border-t border-amber-200"></div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleGoogleSSO('any')}
+                  disabled={isGoogleLoading || isLoading}
+                  className="w-full py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 shadow-xs flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  {isGoogleLoading ? (
+                    <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                  )}
+                  <span>התחברות ישירה עם חשבון Google (SSO)</span>
+                </button>
+              </div>
+
               {/* Submit CTA Button */}
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || isGoogleLoading}
                 className="w-full py-3.5 px-6 rounded-2xl font-extrabold text-sm sm:text-base text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
                 {isLoading ? (
@@ -527,8 +666,48 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   שלום שוב! כניסה לתלמידה רשומה
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  הזיני את כתובת ה-Gmail שאושרה במערכת
+                  התחברי ישירות עם חשבון ה-Google שלך או הזיני כתובת Gmail
                 </p>
+              </div>
+
+              {/* Google SSO Button for Returning Student Login */}
+              <button
+                type="button"
+                onClick={() => handleGoogleSSO('any')}
+                disabled={isGoogleLoading || isLoading}
+                className="w-full py-3.5 px-4 rounded-2xl font-bold text-xs sm:text-sm text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 shadow-xs flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
+              >
+                {isGoogleLoading ? (
+                  <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                )}
+                <span>כניסה מהירה עם Google (SSO)</span>
+              </button>
+
+              <div className="relative flex py-1 items-center">
+                <div className="grow border-t border-amber-200"></div>
+                <span className="shrink mx-3 text-[11px] font-bold text-amber-800/80 bg-white px-2">
+                  או כניסה לפי כתובת GMAIL
+                </span>
+                <div className="grow border-t border-amber-200"></div>
               </div>
 
               <div className="space-y-1.5">
@@ -625,6 +804,71 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             </form>
           )}
 
+          {/* ====================================================
+              MODE 3: MANAGER / ADMIN SECURE LOGIN (GOOGLE SSO)
+          ==================================================== */}
+          {mode === 'admin_login' && (
+            <div className="space-y-6 text-center animate-in fade-in zoom-in-95 py-2">
+              <div className="w-16 h-16 bg-gradient-to-tr from-amber-700 to-amber-900 rounded-2xl flex items-center justify-center mx-auto text-amber-200 shadow-lg border border-amber-500/30">
+                <Lock className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="inline-block px-3 py-1 bg-amber-100 text-amber-950 border border-amber-300 rounded-full text-xs font-black">
+                  🔐 אזור ניהול מאובטח • כניסת מנהלים בלבד
+                </span>
+                <h2 className="text-xl font-extrabold text-amber-950 font-['Heebo']">
+                  התחברות מנהל באמצעות Google SSO
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
+                  הגישה לממשק הניהול מוגנת ודורשת אימות זהות מאובטח של Google. רק מנהלים מורשים (כגון skilead770@gmail.com) רשאים להיכנס.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleGoogleSSO('admin')}
+                  disabled={isGoogleLoading}
+                  className="w-full py-4 px-6 rounded-2xl font-extrabold text-sm sm:text-base text-white bg-gradient-to-r from-amber-700 via-amber-800 to-amber-900 hover:from-amber-800 hover:to-amber-950 shadow-xl shadow-amber-900/30 flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  {isGoogleLoading ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5 shrink-0 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                        />
+                      </svg>
+                      <span>אימות וכניסה עם חשבון Google מנהל</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900 leading-relaxed text-right flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <span>
+                  <strong>אבטחה מוגברת:</strong> המערכת מאמתת את החתימה הדיגיטלית של חשבון ה-Google מול שרתי Google ומוודאת הרשאת ניהול לפני מתן גישה.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Staff / Admin Entry Link */}
           <div className="pt-4 border-t border-amber-100/80 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600 bg-amber-50/50 -mx-6 -mb-6 sm:-mx-8 sm:-mb-8 p-4 rounded-b-3xl border-t border-amber-200/60">
             <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
@@ -635,20 +879,14 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setLoginEmail('skilead770@gmail.com');
-                  setMode('login');
+                  setMode('admin_login');
+                  setError(null);
+                  setSuccessMsg(null);
                 }}
-                className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer"
-                title="הזנת skilead770@gmail.com בכניסה"
+                className="font-bold text-xs text-white bg-amber-700 hover:bg-amber-800 px-3.5 py-1.5 rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
-                מנהל: skilead770@gmail.com
-              </button>
-              <button
-                type="button"
-                onClick={() => onLoginSuccess('admin')}
-                className="font-bold text-xs text-white bg-amber-700 hover:bg-amber-800 px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1 transition-all cursor-pointer"
-              >
-                <span>כניסה ישירה לניהול</span>
+                <Lock className="w-3.5 h-3.5" />
+                <span>כניסה מאובטחת למנהל (Google SSO)</span>
               </button>
             </div>
           </div>

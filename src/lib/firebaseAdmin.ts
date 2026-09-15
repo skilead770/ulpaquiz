@@ -1,9 +1,11 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 
 let firestoreDb: ReturnType<typeof getFirestore> | null = null;
+let authAdmin: ReturnType<typeof getAuth> | null = null;
 
 try {
   if (!getApps().length) {
@@ -41,10 +43,16 @@ try {
     }
   }
   firestoreDb = getFirestore(databaseId);
+  try {
+    authAdmin = getAuth();
+  } catch (authErr) {
+    console.warn('[Firebase Admin] getAuth warning:', authErr);
+  }
   console.log(`[Firebase] Firestore ready for database: ${databaseId}`);
 } catch (e) {
   console.error('[Firebase] Error initializing Firebase Admin:', e);
 }
 
-export { firestoreDb };
+export { firestoreDb, authAdmin };
+
 
