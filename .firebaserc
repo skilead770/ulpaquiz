@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "ulpaquiz"
-  }
+    "default": "ulpaquiz",
+    "ulpa": "ulpaquiz"
+  },
+  "targets": {},
+  "etags": {}
 }

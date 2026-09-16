@@ -22,6 +22,7 @@ import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClasse
 import { validateGmailAddress } from '../lib/gmailValidator';
 import { signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
+import { SUPER_ADMIN_EMAIL } from '../lib/config';
 
 interface EntryScreenProps {
   onLoginSuccess: (student: Student | 'admin', token?: string) => void;
@@ -120,7 +121,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       }
 
       if (expectedRole === 'admin') {
-        setError(`החשבון ${userEmail} אינו מורשה כמנהל מערכת. רק מנהלים מורשים (כגון skilead770@gmail.com) יכולים לגשת לממשק הניהול.`);
+        setError(`החשבון ${userEmail} אינו מורשה כמנהל מערכת. רק מנהלים מורשים (כגון ${SUPER_ADMIN_EMAIL}) יכולים לגשת לממשק הניהול.`);
         return;
       }
 
@@ -198,7 +199,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       });
 
       // Check if this is a manager
-      if (res.isManager || validation.normalizedEmail.toLowerCase() === 'skilead770@gmail.com') {
+      if (res.isManager || validation.normalizedEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
         setSuccessMsg(`שלום מנהל המערכת! כתובת זו (${validation.normalizedEmail}) מוגדרת כמנהל. עליך להתחבר עם Google SSO המאובטח.`);
         setMode('admin_login');
         return;
@@ -241,7 +242,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     }
 
     // Direct managers to secure SSO
-    if (validation.normalizedEmail.toLowerCase() === 'skilead770@gmail.com') {
+    if (validation.normalizedEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       setMode('admin_login');
       setError('ממשק המנהל מאובטח ודורש זיהוי Google SSO מלא. לחצי על כפתור ההתחברות המאובטח להלן.');
       return;
@@ -836,7 +837,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   התחברות מנהל באמצעות Google SSO
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
-                  הגישה לממשק הניהול מוגנת ודורשת אימות זהות מאובטח של Google. רק מנהלים מורשים (כגון skilead770@gmail.com) רשאים להיכנס.
+                  הגישה לממשק הניהול מוגנת ודורשת אימות זהות מאובטח של Google. רק מנהלים מורשים (כגון ${SUPER_ADMIN_EMAIL}) רשאים להיכנס.
                 </p>
               </div>
 

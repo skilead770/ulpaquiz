@@ -1,11 +1,12 @@
 import { DailyHalacha, Student, PrizeMilestone, Invitation, Manager, DEFAULT_CLASSES } from '../types';
+import { SUPER_ADMIN_EMAIL } from '../lib/config';
 
 export const INITIAL_CLASSES: string[] = [...DEFAULT_CLASSES];
 
 export const INITIAL_MANAGERS: Manager[] = [
   {
-    email: 'skilead770@gmail.com',
-    name: 'מנהל ראשי (skilead770)',
+    email: SUPER_ADMIN_EMAIL,
+    name: `מנהל ראשי (${SUPER_ADMIN_EMAIL.split('@')[0]})`,
     role: 'superadmin',
     addedAt: '2026-09-14T01:13:00Z',
   },
@@ -277,7 +278,6 @@ export const INITIAL_STUDENTS: Student[] = [
     grade: 'ט',
     username: 'skivthashem',
     email: 'skivthashem@gmail.com',
-    password: '123',
     points: 4,
     status: 'approved',
     completedDates: ['2026-07-31'],

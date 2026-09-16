@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
@@ -31,6 +32,9 @@ import {
 const PORT = 3000;
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+
+// Super admin configuration from environment variables
+const SUPER_ADMIN_EMAIL = process.env.VITE_SUPER_ADMIN_EMAIL || 'skilead770@gmail.com';
 
 // Interface for DB file
 interface DatabaseSchema {
@@ -66,8 +70,8 @@ function initDB() {
       if (!db.classes || db.classes.length === 0) {
         db.classes = [...INITIAL_CLASSES];
       }
-      // Ensure skilead770@gmail.com is always present in managers
-      if (!db.managers.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+      // Ensure the super admin is always present in managers
+      if (!db.managers.some((m) => m.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase())) {
         db.managers.unshift(INITIAL_MANAGERS[0]);
       }
     } catch (e) {
@@ -104,7 +108,6 @@ function initDB() {
       grade: 'ט',
       email: 'skivthashem@gmail.com',
       username: 'skivthashem',
-      password: '123',
       points: 2,
       status: 'approved',
       completedDates: [],
@@ -178,12 +181,12 @@ async function initFirestore() {
           grade: 'ט',
           email: 'skivthashem@gmail.com',
           username: 'skivthashem',
-          password: '123',
           points: 2,
           status: 'approved',
           completedDates: [],
           submissions: {},
         };
+
         db.students.push(skivStudent);
         saveStudentToFirestore(skivStudent);
       } else if (existingSkivInLoaded.status !== 'approved') {
@@ -201,8 +204,8 @@ async function initFirestore() {
       });
       db.invitations = loadedInvitations.length > 0 ? loadedInvitations : [...INITIAL_INVITATIONS];
       
-      // Ensure skilead770@gmail.com is in managers
-      if (!loadedManagers.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+      // Ensure the super admin is in managers
+      if (!loadedManagers.some((m) => m.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase())) {
         loadedManagers.unshift(INITIAL_MANAGERS[0]);
       }
       db.managers = loadedManagers.length > 0 ? loadedManagers : [...INITIAL_MANAGERS];
@@ -320,6 +323,7 @@ async function deleteInvitationFromFirestore(id: string) {
 
 async function startServer() {
   const app = express();
+  app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
   // Initialize Firestore on startup
@@ -439,7 +443,6 @@ async function startServer() {
       className: s.className || "ט'1",
       grade: (s.grade as GradeType) || 'ט',
       username: s.username || `user_${Date.now()}_${idx}`,
-      password: s.password || '123',
       points: Number(s.points) || 0,
       completedDates: Array.isArray(s.completedDates) ? s.completedDates : [],
       submissions: s.submissions || {},
@@ -550,10 +553,11 @@ async function startServer() {
   });
 
   app.delete('/api/managers/:email', requireAdmin, async (req, res) => {
-    const emailToDelete = req.params.email.trim().toLowerCase();
-    if (emailToDelete === 'skilead770@gmail.com') {
-      return res.status(400).json({ error: 'לא ניתן למחוק את המנהל הראשי (skilead770@gmail.com)' });
+    const emailToDelete = req.params.email.toLowerCase();
+    if (emailToDelete === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return res.status(400).json({ error: `לא ניתן למחוק את המנהל הראשי (${SUPER_ADMIN_EMAIL})` });
     }
+
 
     db.managers = (db.managers || []).filter((m) => m.email.toLowerCase() !== emailToDelete);
     saveDB();
@@ -889,7 +893,7 @@ async function startServer() {
 
   // Self-Registration for Students (Simple: Full Name + GMAIL) - REQUIRES ADMIN APPROVAL!
   app.post('/api/register', async (req, res) => {
-    const { fullName, email, className, grade, username, password, invitationCode } = req.body;
+    const { fullName, email, className, grade, username, invitationCode } = req.body;
     if (!fullName || (!email && !username)) {
       return res.status(400).json({ error: 'נא למלא שם מלא וכתובת Gmail להרשמה' });
     }
@@ -984,7 +988,6 @@ async function startServer() {
       grade: derivedGrade,
       username: finalUsername,
       email: effectiveEmail,
-      password: password ? password.trim() : '123',
       points: 0,
       completedDates: [],
       submissions: {},
@@ -1057,7 +1060,6 @@ async function startServer() {
         grade: computedGrade,
         email: studentData.email || '',
         username: studentData.username || `user_${Date.now()}`,
-        password: studentData.password || '123',
         points: Number(studentData.points) || 0,
         completedDates: [],
         submissions: {},

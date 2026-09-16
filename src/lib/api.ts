@@ -7,6 +7,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db } from './firebaseClient';
+import { SUPER_ADMIN_EMAIL, API_BASE_URL } from './config';
 import {
   Student,
   DailyHalacha,
@@ -113,7 +114,7 @@ async function getOrSeedFirestoreHalachot(): Promise<DailyHalacha[]> {
 
 export async function fetchStudents(): Promise<Student[]> {
   try {
-    const res = await fetch('/api/students');
+    const res = await fetch(API_BASE_URL + '/api/students');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -125,7 +126,7 @@ export async function fetchStudents(): Promise<Student[]> {
 
 export async function fetchHalachot(): Promise<DailyHalacha[]> {
   try {
-    const res = await fetch('/api/halachot');
+    const res = await fetch(API_BASE_URL + '/api/halachot');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -137,7 +138,7 @@ export async function fetchHalachot(): Promise<DailyHalacha[]> {
 
 export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
   try {
-    const res = await fetch(`/api/halachot/${date}`);
+    const res = await fetch(API_BASE_URL + `/api/halachot/${date}`);
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -159,7 +160,7 @@ export async function submitQuizApi(
   answers: Record<string, number>
 ) {
   try {
-    const res = await fetch('/api/submit-quiz', {
+    const res = await fetch(API_BASE_URL + '/api/submit-quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, date, answers }),
@@ -251,7 +252,7 @@ export async function submitQuizApi(
 
 export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData> {
   try {
-    const res = await fetch(`/api/leaderboard?date=${date}`);
+    const res = await fetch(API_BASE_URL + `/api/leaderboard?date=${date}`);
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -368,7 +369,7 @@ export async function fetchPrizesApi(): Promise<{
   milestones: PrizeMilestone[];
 }> {
   try {
-    const res = await fetch('/api/prizes');
+    const res = await fetch(API_BASE_URL + '/api/prizes');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
@@ -403,7 +404,7 @@ export async function fetchPrizesApi(): Promise<{
 
 export async function bulkImportStudentsApi(students: Partial<Student>[]) {
   try {
-    const res = await fetch('/api/students/bulk-import', {
+    const res = await fetch(API_BASE_URL + '/api/students/bulk-import', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ students }),
@@ -421,7 +422,6 @@ export async function bulkImportStudentsApi(students: Partial<Student>[]) {
     className: s.className || "ט'1",
     grade: (s.grade as GradeType) || 'ט',
     username: s.username || `user_${Date.now()}_${idx}`,
-    password: s.password || '123',
     points: Number(s.points) || 0,
     completedDates: Array.isArray(s.completedDates) ? s.completedDates : [],
     submissions: s.submissions || {},
@@ -438,7 +438,7 @@ export async function bulkImportStudentsApi(students: Partial<Student>[]) {
 
 export async function addStudentApi(student: Partial<Student>) {
   try {
-    const res = await fetch('/api/students', {
+    const res = await fetch(API_BASE_URL + '/api/students', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(student),
@@ -468,7 +468,6 @@ export async function addStudentApi(student: Partial<Student>) {
       grade: (student.grade as GradeType) || 'ט',
       username: student.username || '',
       email: student.email || '',
-      password: student.password || '123',
       points: student.points || 0,
       completedDates: [],
       submissions: {},
@@ -483,7 +482,7 @@ export async function addStudentApi(student: Partial<Student>) {
 
 export async function deleteStudentApi(id: string) {
   try {
-    const res = await fetch(`/api/students/${id}`, {
+    const res = await fetch(API_BASE_URL + `/api/students/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -500,7 +499,7 @@ export async function deleteStudentApi(id: string) {
 }
 
 export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], replaceAll = false) {
-  const res = await fetch('/api/admin/bulk-import-halachot', {
+  const res = await fetch(API_BASE_URL + '/api/admin/bulk-import-halachot', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ halachot, replaceAll }),
@@ -515,7 +514,7 @@ export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], r
 export async function parseDocContentApi(data: ArrayBuffer | Uint8Array | string) {
   const headers = getAuthHeaders();
   headers['Content-Type'] = 'application/octet-stream';
-  const res = await fetch('/api/admin/parse-doc-content', {
+  const res = await fetch(API_BASE_URL + '/api/admin/parse-doc-content', {
     method: 'POST',
     headers,
     body: data,
@@ -529,7 +528,7 @@ export async function parseDocContentApi(data: ArrayBuffer | Uint8Array | string
 
 export async function saveHalachaApi(halacha: DailyHalacha) {
   try {
-    const res = await fetch('/api/halachot', {
+    const res = await fetch(API_BASE_URL + '/api/halachot', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(halacha),
@@ -548,7 +547,7 @@ export async function saveHalachaApi(halacha: DailyHalacha) {
 
 export async function deleteHalachaApi(id: string) {
   try {
-    const res = await fetch(`/api/halachot/${id}`, {
+    const res = await fetch(API_BASE_URL + `/api/halachot/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -565,7 +564,7 @@ export async function deleteHalachaApi(id: string) {
 }
 
 export async function generateAiHalachaApi(topic: string, date: string, hebrewDate?: string, rawContent?: string) {
-  const res = await fetch('/api/admin/generate-ai-halacha', {
+  const res = await fetch(API_BASE_URL + '/api/admin/generate-ai-halacha', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ topic, date, hebrewDate, rawContent }),
@@ -755,7 +754,7 @@ export async function loginByEmailApi(
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  if (cleanEmail === 'skilead770@gmail.com') {
+  if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return {
       success: true,
       isManager: true,
@@ -885,7 +884,6 @@ export async function registerStudentApi(studentData: {
     grade: derivedGrade,
     username: finalUsername,
     email: effectiveEmail,
-    password: studentData.password?.trim() || '123',
     points: 0,
     completedDates: [],
     submissions: {},
@@ -982,7 +980,7 @@ export async function fetchManagersApi(): Promise<Manager[]> {
     if (!snap.empty) {
       const list: Manager[] = [];
       snap.forEach((d) => list.push(d.data() as Manager));
-      if (!list.some((m) => m.email.toLowerCase() === 'skilead770@gmail.com')) {
+      if (!list.some((m) => m.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase())) {
         list.unshift(INITIAL_MANAGERS[0]);
       }
       return list;

@@ -1,6 +1,9 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "database": "(default)",
+    "location": "me-west1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "hosting": {
     "public": "dist",
@@ -10,6 +13,13 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "ulpaquiz-server",
+          "region": "me-west1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

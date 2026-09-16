@@ -18,7 +18,6 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [grade, setGrade] = useState<GradeType>('ט');
   const [className, setClassName] = useState("ט'1");
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('123');
   const [invitationCode, setInvitationCode] = useState('');
   const [invitationValidInfo, setInvitationValidInfo] = useState<{
     valid: boolean;
@@ -102,7 +101,6 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         grade,
         className: className.trim(),
         username: username.trim(),
-        password: password.trim() || '123',
         invitationCode: invitationCode.trim() || undefined,
       });
 
@@ -339,7 +337,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
                     שם משתמש לחיבור <span className="text-rose-500">*</span>
@@ -350,19 +348,6 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                     placeholder="לדוגמה: tamar_s"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
-                    סיסמה אישית
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="123"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
                     className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
                   />
                 </div>

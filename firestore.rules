@@ -1,52 +1,60 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
+    
+    // Helper function to check if the user is a manager
+    function isAdmin() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/managers/$(request.auth.token.email.replace("[^a-zA-Z0-9_]", "_")));
+    }
+    
+    // Helper to check if the user is the owner of the student document
+    function isOwner(studentId) {
+      // If we store the student's email as their ID or in the doc, we could check that.
+      // But based on types.ts, Student.id is used.
+      // If students login with SSO, request.auth.uid might match studentId if correctly mapped.
+      return request.auth != null && (request.auth.uid == studentId || request.auth.token.email == get(/databases/$(database)/documents/students/$(studentId)).data.email);
     }
 
-    function isManager() {
-      return isAuthenticated() && (
-        request.auth.token.email.lower() == 'skilead770@gmail.com' ||
-        exists(/databases/$(database)/documents/managers/$(request.auth.token.email.lower().replace('[^a-zA-Z0-9_]', '_')))
-      );
-    }
-
-    // Halachot: Anyone can read daily halachot for learning; only authenticated managers can write
+    // 1. Halachot & Quizzes: Publicly readable for students, Admin-only write
     match /halachot/{halachaId} {
       allow read: if true;
-      allow write: if isManager();
+      allow write: if isAdmin();
     }
-
-    // Settings (classes list, etc.): Read open; only managers can modify
-    match /settings/{docId} {
+    
+    // 2. Invitations: Publicly readable for validation during registration, Admin-only write
+    match /invitations/{invId} {
       allow read: if true;
-      allow write: if isManager();
+      allow write: if isAdmin();
     }
-
-    // Invitations: Anyone can read/validate codes; only managers can create or delete invitations
-    match /invitations/{invitationId} {
-      allow read: if true;
-      allow write: if isManager();
-    }
-
-    // Managers list: Only authorized managers can read or write
+    
+    // 3. Managers: Admin-only read/write
     match /managers/{managerId} {
-      allow read, write: if isManager();
+      allow read: if request.auth != null; // Students might need to see names
+      allow write: if isAdmin();
     }
-
-    // Students collection:
-    // - Read allowed for leaderboards & authentication check
-    // - Student registration: allow creation
-    // - Updates / deletions / approval: only authorized managers or owner
-    match /students/{studentId} {
+    
+    // 4. Settings: Publicly readable, Admin-only write
+    match /settings/{settingId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if isManager() || (isAuthenticated() && request.auth.token.email.lower() == resource.data.email.lower());
-      allow delete: if isManager();
+      allow write: if isAdmin();
+    }
+    
+    // 5. Students: 
+    match /students/{studentId} {
+      // Allow read for leaderboard and student lookups
+      // Note: Leaderboard items should ideally be in a separate public collection.
+      allow read: if true; 
+      
+      // Allow creation for new registrations
+      allow create: if request.resource.data.status == 'pending';
+      
+      // Allow updates for quiz submissions
+      // Restricted to owners OR admins
+      allow update: if isAdmin() || isOwner(studentId);
+      
+      // Prevent public deletion
+      allow delete: if isAdmin();
     }
   }
 }
-

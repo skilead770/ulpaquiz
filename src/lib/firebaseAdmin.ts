@@ -15,6 +15,13 @@ try {
 
     if (keyPath) {
       const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf-8'));
+      
+      // Safety Check: Project ID must match 'ulpaquiz'
+      const expectedProjectId = process.env.VITE_FIREBASE_PROJECT_ID || 'ulpaquiz';
+      if (serviceAccount.project_id !== expectedProjectId) {
+        console.error(`[Firebase Admin] CRITICAL: Project ID mismatch! Service account is for "${serviceAccount.project_id}", but expected "${expectedProjectId}".`);
+      }
+
       initializeApp({
         credential: cert(serviceAccount),
         projectId: serviceAccount.project_id,
@@ -24,6 +31,13 @@ try {
       const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        
+        // Safety Check: Project ID must match 'ulpaquiz'
+        const expectedProjectId = process.env.VITE_FIREBASE_PROJECT_ID || 'ulpaquiz';
+        if (config.projectId !== expectedProjectId) {
+          console.error(`[Firebase Admin] CRITICAL: Project ID mismatch in config! Found "${config.projectId}", but expected "${expectedProjectId}".`);
+        }
+
         initializeApp({
           projectId: config.projectId,
         });

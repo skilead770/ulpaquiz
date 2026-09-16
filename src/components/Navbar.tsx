@@ -15,6 +15,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { Student } from '../types';
+import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 
 interface NavbarProps {
@@ -159,11 +160,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <div className="hidden sm:block">
                 <div className="text-xs font-bold leading-tight flex items-center gap-1">
-                  {isAdmin ? 'מנהל: skilead770' : currentStudent?.fullName}
+                  {isAdmin ? `מנהל: ${SUPER_ADMIN_EMAIL.split('@')[0]}` : currentStudent?.fullName}
                   <ChevronDown className="w-3.5 h-3.5 text-amber-700 group-hover:translate-y-0.5 transition-transform" />
                 </div>
                 <div className="text-[10px] text-amber-800/90 font-semibold">
-                  {isAdmin ? 'skilead770@gmail.com (מנהל ראשי)' : `כיתה ${currentStudent?.className}`}
+                  {isAdmin ? `${SUPER_ADMIN_EMAIL} (מנהל ראשי)` : `כיתה ${currentStudent?.className}`}
                 </div>
               </div>
 

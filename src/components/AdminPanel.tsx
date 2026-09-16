@@ -35,6 +35,7 @@ import {
   DEFAULT_CLASSES,
   inferGradeFromClass,
 } from '../types';
+import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { ExcelUploader } from './ExcelUploader';
 import {
   bulkImportStudentsApi,
@@ -262,14 +263,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     grade: GradeType;
     className: string;
     username: string;
-    password: string;
     points: number;
   }>({
     fullName: '',
     grade: 'ט',
     className: "ט'1",
     username: '',
-    password: '123',
     points: 0,
   });
   const [isSavingStudent, setIsSavingStudent] = useState(false);
@@ -289,7 +288,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         grade: newStudent.grade,
         className: newStudent.className.trim(),
         username: newStudent.username.trim() || undefined,
-        password: newStudent.password.trim() || '123',
         points: Number(newStudent.points) || 0,
       });
       setIsAddStudentModalOpen(false);
@@ -298,7 +296,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         grade: 'ט',
         className: "ט'1",
         username: '',
-        password: '123',
         points: 0,
       });
       onRefreshData();
@@ -1650,7 +1647,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         שם משתמש
@@ -1666,29 +1663,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        סיסמה ראשונית
+                        ניקוד התחלתי במבצע
                       </label>
                       <input
-                        type="text"
-                        placeholder="123"
-                        value={newStudent.password}
-                        onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        type="number"
+                        min="0"
+                        value={newStudent.points}
+                        onChange={(e) => setNewStudent({ ...newStudent, points: Number(e.target.value) })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                       />
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      ניקוד התחלתי במבצע
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={newStudent.points}
-                      onChange={(e) => setNewStudent({ ...newStudent, points: Number(e.target.value) })}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
                   </div>
 
                   {studentError && (
@@ -2222,7 +2206,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-white/10 backdrop-blur-md border border-white/20 p-3.5 rounded-2xl text-right sm:min-w-[240px]">
                 <span className="text-[11px] text-amber-200 font-medium block">מנהל ראשי נוכחי:</span>
                 <span className="text-sm font-extrabold text-white font-mono dir-ltr block">
-                  skilead770@gmail.com
+                  ${SUPER_ADMIN_EMAIL}
+
                 </span>
                 <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-400/20 text-yellow-300 text-[10px] font-bold rounded-md border border-yellow-400/30">
                   סופר-אדמין (קבוע)
@@ -2266,7 +2251,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs leading-relaxed text-amber-900/90">
               <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
                 <span className="font-extrabold text-amber-800 block">1. הזנת כתובת ה-Gmail</span>
-                <p>במסך הכניסה, מזינים את כתובת ה-Gmail המורשית (למשל skilead770@gmail.com).</p>
+                <p>במסך הכניסה, מזינים את כתובת ה-Gmail המורשית (למשל ${SUPER_ADMIN_EMAIL}).</p>
               </div>
               <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
                 <span className="font-extrabold text-amber-800 block">2. זיהוי אוטומטי כמנהל</span>
@@ -2358,7 +2343,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="divide-y divide-slate-100">
               {managers.map((m) => {
-                const isSuperadmin = m.email.toLowerCase() === 'skilead770@gmail.com';
+                const isSuperadmin = m.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
                 return (
                   <div
                     key={m.email}
