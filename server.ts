@@ -1542,7 +1542,14 @@ ${rawContent ? `הסתמך במדויק על טקסט המקור הבא מתוך
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    
+    // 1. Explicitly catch favicon requests before serving static assets
+    app.use('/favicon.ico', express.static(path.join(distPath, 'favicon.ico')));
+    
+    // 2. Serve the standard static asset bundles
     app.use(express.static(distPath));
+    
+    // 3. Fallback catch-all routing for React Single Page Application links
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
