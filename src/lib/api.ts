@@ -499,6 +499,34 @@ export async function deleteStudentApi(id: string) {
   return { success: true, students: allStudents };
 }
 
+export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], replaceAll = false) {
+  const res = await fetch('/api/admin/bulk-import-halachot', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ halachot, replaceAll }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'שגיאה ביבוא הלכות');
+  }
+  return res.json();
+}
+
+export async function parseDocContentApi(data: ArrayBuffer | Uint8Array | string) {
+  const headers = getAuthHeaders();
+  headers['Content-Type'] = 'application/octet-stream';
+  const res = await fetch('/api/admin/parse-doc-content', {
+    method: 'POST',
+    headers,
+    body: data,
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'שגיאה בפענוח תוכן המסמך');
+  }
+  return res.json();
+}
+
 export async function saveHalachaApi(halacha: DailyHalacha) {
   try {
     const res = await fetch('/api/halachot', {
@@ -536,11 +564,11 @@ export async function deleteHalachaApi(id: string) {
   return { success: true, halachot: allHalachot };
 }
 
-export async function generateAiHalachaApi(topic: string, date: string) {
+export async function generateAiHalachaApi(topic: string, date: string, hebrewDate?: string, rawContent?: string) {
   const res = await fetch('/api/admin/generate-ai-halacha', {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ topic, date }),
+    body: JSON.stringify({ topic, date, hebrewDate, rawContent }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

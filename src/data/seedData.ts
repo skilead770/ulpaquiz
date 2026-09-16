@@ -73,16 +73,17 @@ export const DEFAULT_PRIZE_MILESTONES: PrizeMilestone[] = [
 
 export const INITIAL_HALACHOT: DailyHalacha[] = [
   {
-    id: 'halacha-2026-07-31',
-    date: '2026-07-31',
+    id: 'halacha-2026-08-01',
+    date: '2026-08-01',
+    hebrewDate: 'כ"ד אלול תשפ"ז',
     title: 'הלכות ברכות - ברכת המזון וברכות הנהנין',
     topic: 'הלכות ברכות',
-    source: 'סדרת "אהלי הלכה"',
-    content: `מתוך סדרת "אהלי הלכה":
+    source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+    content: `מתוך סדרת "אהלי הלכה" - חידון שנת תשפ"ז:
 
 כל הנהנה מן העולם הזה בלא ברכה - כאילו מעל בקודשים. תקנו חכמים לברך לפני שאוכלים או שותים (ברכות הנהנין) כדי להודות לה' על המזון והשפע.
 
-אם אדם אכל שבעה מיני דגן (חיטה, שעורה וכו') או שתה יין, או אכל פירות משבעת המינים, מברך ברכה אחרונה מעין שלוש ("על המחיה", "על הגפן", "על העץ"). במידה שאכל פת דגן בכמות של כזית (כ-27 גרם) ומעלה, חייב מן התורה לברך ברכת המזון ("ואכלת ושבעת וברכת").
+אם אדם אכל שבעה מיני דגן (חיטה, שעורה וכו') או שתה ייין, או אכל פירות משבעת המינים, מברך ברכה אחרונה מעין שלוש ("על המחיה", "על הגפן", "על העץ"). במידה שאכל פת דגן בכמות של כזית (כ-27 גרם) ומעלה, חייב מן התורה לברך ברכת המזון ("ואכלת ושבעת וברכת").
 
 נשים חייבות בברכת המזון ובברכות הנהנין בדיוק כמו אנשים. ראוי לברך מתוך הכתב/סידור ובקול רם ובכוונה, שכן ברכה בכוונה מביאה שפע וברכה לבית.`,
     questions: [
@@ -139,10 +140,11 @@ export const INITIAL_HALACHOT: DailyHalacha[] = [
   {
     id: 'halacha-2026-07-30',
     date: '2026-07-30',
+    hebrewDate: 'כ"ג אלול תשפ"ז',
     title: 'הלכות לשון הרע ודיבור נקי - ואהבת לרעך כמוך',
     topic: 'שמירת הלשון',
-    source: 'סדרת "אהלי הלכה"',
-    content: `מתוך סדרת "אהלי הלכה":
+    source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+    content: `מתוך סדרת "אהלי הלכה" - שנת תשפ"ז:
 
 איסור לשון הרע הוא מן האיסורים החמורים בתורה. בסדרת "אהלי הלכה" מובהר כי לשון הרע מוגדר ככל דיבור אמיתי על הזולת שיכול לגרום לו נזק, צער, גנות או בושה. אם הדיבור אינו אמת - הרי זה נקרא "מוציא שם רע", שהוא חמור עוד יותר.
 
@@ -203,10 +205,11 @@ export const INITIAL_HALACHOT: DailyHalacha[] = [
   {
     id: 'halacha-2026-07-29',
     date: '2026-07-29',
+    hebrewDate: 'כ"ב אלול תשפ"ז',
     title: 'הלכות כיבוד אב ואם - עשיית נחת רוח להורים',
     topic: 'כיבוד הורים',
-    source: 'סדרת "אהלי הלכה"',
-    content: `מתוך סדרת "אהלי הלכה":
+    source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+    content: `מתוך סדרת "אהלי הלכה" - שנת תשפ"ז:
 
 מצוות כיבוד אב ואם היא אחת מעשרת הדיברות, ובסדרת "אהלי הלכה" מודגש כי הושוו בה כבוד הורים לכבוד המקום. מצווה זו כוללת עשיית נחת רוח להורים, עזרה בצרכי הבית, דיבור בנחת ובכבוד, והקפדה שלא לסתור את דבריהם או להמרות את פיהם.
 
@@ -267,201 +270,9 @@ export const INITIAL_HALACHOT: DailyHalacha[] = [
 ];
 
 export const INITIAL_STUDENTS: Student[] = [
-  // Grade ט' (Ninth Grade)
-  {
-    id: 's1',
-    fullName: 'אמונה כהן',
-    className: "ט'1",
-    grade: 'ט',
-    username: 'emuna',
-    email: 'emuna@gmail.com',
-    password: '123',
-    points: 14,
-    completedDates: ['2026-07-31', '2026-07-30', '2026-07-29'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '08:30', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-      '2026-07-30': { date: '2026-07-30', score: 4, earnedPoints: 2, submittedAt: '09:00', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's2',
-    fullName: 'הודיה ישראלי',
-    className: "ט'1",
-    grade: 'ט',
-    username: 'hodaya',
-    email: 'hodaya@gmail.com',
-    password: '123',
-    points: 12,
-    completedDates: ['2026-07-31', '2026-07-30'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '08:45', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's3',
-    fullName: 'נועה לוי',
-    className: "ט'2",
-    grade: 'ט',
-    username: 'noa',
-    email: 'noa@gmail.com',
-    password: '123',
-    points: 10,
-    completedDates: ['2026-07-30'],
-    submissions: {},
-  },
-  {
-    id: 's4',
-    fullName: 'תהילה שלום',
-    className: "ט'2",
-    grade: 'ט',
-    username: 'tehila',
-    email: 'tehila@gmail.com',
-    password: '123',
-    points: 8,
-    completedDates: [],
-    submissions: {},
-  },
-
-  // Grade י' (Tenth Grade)
-  {
-    id: 's5',
-    fullName: 'תמר אברהם',
-    className: "י'1",
-    grade: 'י',
-    username: 'tamar',
-    email: 'tamar@gmail.com',
-    password: '123',
-    points: 16,
-    completedDates: ['2026-07-31', '2026-07-30'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '07:50', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's6',
-    fullName: 'שירה גולדברג',
-    className: "י'1",
-    grade: 'י',
-    username: 'shira',
-    email: 'shira@gmail.com',
-    password: '123',
-    points: 16, // Intentional TIE with Tamar for top student demo!
-    completedDates: ['2026-07-31', '2026-07-30'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '08:10', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's7',
-    fullName: 'נעמה שפירא',
-    className: "י'2",
-    grade: 'י',
-    username: 'naama',
-    email: 'naama@gmail.com',
-    password: '123',
-    points: 14,
-    completedDates: ['2026-07-31'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 3, earnedPoints: 1, submittedAt: '10:15', answers: { q1: 0, q2: 1, q3: 0, q4: 1 } },
-    },
-  },
-  {
-    id: 's8',
-    fullName: 'מוריה כץ',
-    className: "י'2",
-    grade: 'י',
-    username: 'moriya',
-    email: 'moriya@gmail.com',
-    password: '123',
-    points: 11,
-    completedDates: [],
-    submissions: {},
-  },
-
-  // Grade יא' (Eleventh Grade)
-  {
-    id: 's9',
-    fullName: 'רחלי ברק',
-    className: "יא'1",
-    grade: 'יא',
-    username: 'racheli',
-    email: 'racheli@gmail.com',
-    password: '123',
-    points: 13,
-    completedDates: ['2026-07-31'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '09:20', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's10',
-    fullName: 'אלה דוד',
-    className: "יא'1",
-    grade: 'יא',
-    username: 'ella',
-    email: 'ella@gmail.com',
-    password: '123',
-    points: 9,
-    completedDates: [],
-    submissions: {},
-  },
-  {
-    id: 's11',
-    fullName: 'מיכל פרידמן',
-    className: "יא'2",
-    grade: 'יא',
-    username: 'michal',
-    email: 'michal@gmail.com',
-    password: '123',
-    points: 10,
-    completedDates: ['2026-07-31'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '11:00', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-
-  // Grade יב' (Twelfth Grade)
-  {
-    id: 's12',
-    fullName: 'יעל מזרחי',
-    className: "יב'1",
-    grade: 'יב',
-    username: 'yael',
-    email: 'yael@gmail.com',
-    password: '123',
-    points: 15,
-    completedDates: ['2026-07-31'],
-    submissions: {
-      '2026-07-31': { date: '2026-07-31', score: 4, earnedPoints: 2, submittedAt: '08:00', answers: { q1: 0, q2: 1, q3: 1, q4: 1 } },
-    },
-  },
-  {
-    id: 's13',
-    fullName: 'טל שטרן',
-    className: "יב'1",
-    grade: 'יב',
-    username: 'tal',
-    email: 'tal@gmail.com',
-    password: '123',
-    points: 12,
-    completedDates: [],
-    submissions: {},
-  },
-  {
-    id: 's14',
-    fullName: 'אביגיל חזן',
-    className: "יב'2",
-    grade: 'יב',
-    username: 'avigail',
-    email: 'avigail@gmail.com',
-    password: '123',
-    points: 11,
-    completedDates: [],
-    submissions: {},
-  },
   {
     id: 's-skivthashem',
-    fullName: 'רשומה (skivthashem)',
+    fullName: 'תלמידה רשומה (skivthashem)',
     className: "ט'1",
     grade: 'ט',
     username: 'skivthashem',

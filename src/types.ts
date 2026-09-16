@@ -30,9 +30,10 @@ export interface Question {
 export interface DailyHalacha {
   id: string;
   date: string; // YYYY-MM-DD
+  hebrewDate?: string; // e.g. "א' תשרי תשפ\"ז", "י\"ד חשון תשפ\"ז"
   title: string;
   topic: string;
-  source?: string; // e.g., 'ספר אהלי הלכה - הרב אהרון דרשביץ שליט"א'
+  source?: string; // e.g., 'ספר אהלי הלכה'
   content: string;
   questions: [Question, Question, Question, Question]; // exactly 4 questions
 }

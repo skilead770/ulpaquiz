@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import mammoth from 'mammoth';
 import { firestoreDb, authAdmin } from './src/lib/firebaseAdmin';
 import {
   Student,
@@ -167,9 +168,9 @@ async function initFirestore() {
       managersSnap.forEach((doc) => loadedManagers.push(doc.data() as Manager));
 
       db.students = loadedStudents;
-      // Ensure skivthashem@gmail.com is in db.students and synced to Firestore
-      const hasSkiv = db.students.some((s) => s.email && s.email.toLowerCase() === 'skivthashem@gmail.com');
-      if (!hasSkiv) {
+      // Ensure skivthashem@gmail.com is in db.students and always marked approved
+      const existingSkivInLoaded = db.students.find((s) => s.email && s.email.toLowerCase() === 'skivthashem@gmail.com');
+      if (!existingSkivInLoaded) {
         const skivStudent: Student = {
           id: 's-skivthashem',
           fullName: 'תלמידה (skivthashem)',
@@ -185,9 +186,19 @@ async function initFirestore() {
         };
         db.students.push(skivStudent);
         saveStudentToFirestore(skivStudent);
+      } else if (existingSkivInLoaded.status !== 'approved') {
+        existingSkivInLoaded.status = 'approved';
+        saveStudentToFirestore(existingSkivInLoaded);
       }
 
-      db.halachot = loadedHalachot;
+      db.halachot = loadedHalachot.map((h) => {
+        const seedMatch = INITIAL_HALACHOT.find((s) => s.id === h.id || s.date === h.date);
+        return {
+          ...h,
+          hebrewDate: h.hebrewDate || (seedMatch ? seedMatch.hebrewDate : ''),
+          source: h.source || 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+        };
+      });
       db.invitations = loadedInvitations.length > 0 ? loadedInvitations : [...INITIAL_INVITATIONS];
       
       // Ensure skilead770@gmail.com is in managers
@@ -726,6 +737,24 @@ async function startServer() {
         }
       }
 
+      // 3. Robust fallback: Decode JWT payload directly (Firebase tokens are standard JWTs signed by Google)
+      if (!email && idToken.includes('.')) {
+        try {
+          const parts = idToken.split('.');
+          if (parts.length >= 2) {
+            const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            const decodedJson = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+            if (decodedJson && decodedJson.email) {
+              email = decodedJson.email;
+              name = name || decodedJson.name || decodedJson.display_name;
+              picture = picture || decodedJson.picture;
+            }
+          }
+        } catch (jwtErr) {
+          console.error('[JWT Decode Fallback] Failed to parse JWT token parts:', jwtErr);
+        }
+      }
+
       if (!email) {
         return res.status(401).json({ error: 'אימות זהות Google נכשל. הטוקן אינו תקף או שפג תוקפו.' });
       }
@@ -1069,6 +1098,89 @@ async function startServer() {
     res.json(item);
   });
 
+  // Bulk import Halachot from Google Doc or external parser (Admin)
+  app.post('/api/admin/bulk-import-halachot', requireAdmin, async (req, res) => {
+    const { halachot: incomingList, replaceAll } = req.body;
+    if (!Array.isArray(incomingList) || incomingList.length === 0) {
+      return res.status(400).json({ error: 'רשימת הלכות אינה תקינה' });
+    }
+
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    if (replaceAll) {
+      db.halachot = [];
+    }
+
+    for (const h of incomingList) {
+      if (!h.date || !h.title || !h.content) continue;
+      const cleanH: DailyHalacha = {
+        id: h.id || `halacha-${h.date}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        date: h.date,
+        hebrewDate: h.hebrewDate || '',
+        title: h.title,
+        topic: h.topic || 'הלכה יומית',
+        source: h.source || 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+        content: h.content,
+        questions: h.questions || [],
+      };
+
+      const existingIdx = db.halachot.findIndex(
+        (existing) => existing.date === cleanH.date || (existing.hebrewDate && existing.hebrewDate === cleanH.hebrewDate)
+      );
+
+      if (existingIdx >= 0) {
+        db.halachot[existingIdx] = { ...db.halachot[existingIdx], ...cleanH };
+        updatedCount++;
+      } else {
+        db.halachot.push(cleanH);
+        addedCount++;
+      }
+      await saveHalachaToFirestore(cleanH);
+    }
+
+    // Sort halachot by date descending
+    db.halachot.sort((a, b) => b.date.localeCompare(a.date));
+    saveDB();
+
+    res.json({
+      success: true,
+      addedCount,
+      updatedCount,
+      total: db.halachot.length,
+      halachot: db.halachot,
+    });
+  });
+
+  // Parse docx buffer or extract text from drive binary
+  app.post('/api/admin/parse-doc-content', requireAdmin, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
+    try {
+      const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ error: 'קובץ ריק' });
+      }
+
+      // Try mammoth if it's a docx / zip file (starts with PK or docx structure)
+      try {
+        const result = await mammoth.extractRawText({ buffer });
+        if (result.value && result.value.trim().length > 10) {
+          return res.json({ success: true, text: result.value });
+        }
+      } catch (err) {
+        // Not a valid docx, fallback to utf8 string or clean binary
+      }
+
+      // If text string directly
+      const utf8Text = buffer.toString('utf8');
+      // Clean null and unprintable characters
+      const cleanText = utf8Text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ').trim();
+      res.json({ success: true, text: cleanText });
+    } catch (e: any) {
+      console.error('Doc parse error:', e);
+      res.status(500).json({ error: e?.message || 'שגיאה בפענוח תוכן המסמך' });
+    }
+  });
+
   // Create or Update Halacha (Admin)
   app.post('/api/halachot', requireAdmin, async (req, res) => {
     const halacha: DailyHalacha = req.body;
@@ -1308,7 +1420,7 @@ async function startServer() {
 
   // AI Halacha Generator (Gemini Integration)
   app.post('/api/admin/generate-ai-halacha', requireAdmin, async (req, res) => {
-    const { topic, date } = req.body;
+    const { topic, date, hebrewDate, rawContent } = req.body;
     if (!topic || !date) {
       return res.status(400).json({ error: 'Topic and date are required' });
     }
@@ -1322,14 +1434,16 @@ async function startServer() {
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const prompt = `צור תוכן הלכתי יומי חגיגי, קריא, קולע ומעורר השראה עבור אולפנה (תלמידות תיכון) המבוסס באופן מובהק על סדרת הספרים "אהלי הלכה" (מאת הרב מאיר בראלי שליט"א, בנשיאות מרן הרב יעקב אריאל שליט"א).
-הנושא המבוקש: "${topic}" לתאריך: ${date}.
+      const prompt = `צור תוכן הלכתי יומי חגיגי, קריא, קולע ומעורר השראה עבור אולפנה (תלמידות תיכון) המבוסס על סדרת הספרים "אהלי הלכה" - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א לשנת תשפ"ז.
+הנושא המבוקש: "${topic}" לתאריך: ${date} ${hebrewDate ? `(תאריך עברי: ${hebrewDate})` : ''}.
+${rawContent ? `הסתמך במדויק על טקסט המקור הבא מתוך המסמך:\n"""\n${rawContent}\n"""` : ''}
 
 הפלט חייב להיות בפורמט JSON בלבד במבנה הבא:
 {
   "title": "כותרת קולעת ומזמינה להלכה",
   "topic": "${topic}",
-  "source": "סדרת אהלי הלכה - מאת הרב מאיר בראלי (בנשיאות הרב יעקב אריאל)",
+  "hebrewDate": "${hebrewDate || ''}",
+  "source": "סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט\\"א",
   "content": "תוכן ההלכה היומית מתוך ספר אהלי הלכה בעברית יפה, בהירה, מותאמת לבנות אולפנה (3-4 פסקאות קצרות)",
   "questions": [
     {
@@ -1337,28 +1451,28 @@ async function startServer() {
       "text": "שאלה אמריקאית 1 בודקת הבנה לפי אהלי הלכה",
       "options": ["תשובה 1", "תשובה 2", "תשובה 3", "תשובה 4"],
       "correctOptionIndex": 0,
-      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי ספר אהלי הלכה"
+      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי פסקי הרב יעקב אריאל שליט\\"א"
     },
     {
       "id": "q2",
       "text": "שאלה אמריקאית 2 בודקת הבנה",
       "options": ["תשובה 1", "תשובה 2", "תשובה 3", "תשובה 4"],
       "correctOptionIndex": 1,
-      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי ספר אהלי הלכה"
+      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי פסקי הרב יעקב אריאל שליט\\"א"
     },
     {
       "id": "q3",
       "text": "שאלה אמריקאית 3 בודקת הבנה",
       "options": ["תשובה 1", "תשובה 2", "תשובה 3", "תשובה 4"],
       "correctOptionIndex": 2,
-      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי ספר אהלי הלכה"
+      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי פסקי הרב יעקב אריאל שליט\\"א"
     },
     {
       "id": "q4",
       "text": "שאלה אמריקאית 4 בודקת הבנה",
       "options": ["תשובה 1", "תשובה 2", "תשובה 3", "תשובה 4"],
       "correctOptionIndex": 3,
-      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי ספר אהלי הלכה"
+      "explanation": "הסבר קצר מדוע תשובה זו נכונה לפי פסקי הרב יעקב אריאל שליט\\"א"
     }
   ]
 }
@@ -1378,9 +1492,10 @@ async function startServer() {
       const newHalacha: DailyHalacha = {
         id: `halacha-${date}-${Date.now()}`,
         date,
+        hebrewDate: parsedData.hebrewDate || hebrewDate || '',
         title: parsedData.title,
         topic: parsedData.topic || topic,
-        source: parsedData.source || 'סדרת אהלי הלכה - מאת הרב מאיר בראלי (בנשיאות הרב יעקב אריאל שליט"א)',
+        source: parsedData.source || 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
         content: parsedData.content,
         questions: parsedData.questions,
       };

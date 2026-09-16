@@ -195,7 +195,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-amber-200/60 py-6 text-center text-xs text-amber-900/80 font-medium">
         <p>
-          מערכת "מבצע הלכה יומית" לאולפנה • תשפ"ו • מוקדש להגדלת תורה ולהאדרתה
+          מערכת "חידון הלכה יומית" לאולפנה • תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א • מוקדש להגדלת תורה ולהאדרתה
         </p>
       </footer>
 

@@ -17,20 +17,37 @@ export interface AuthSession {
   studentData: Student | null;
   managerData: Manager | null;
   token: string | null;
+  googleAccessToken?: string | null;
+}
+
+let cachedGoogleAccessToken: string | null = null;
+
+export function getCachedGoogleAccessToken(): string | null {
+  return cachedGoogleAccessToken;
 }
 
 /**
  * Sign in using Google SSO (signInWithPopup).
- * Requests user profile and email.
+ * Requests user profile, email and Drive readonly scope for importing documents.
  */
-export async function signInWithGoogleSSO(): Promise<FirebaseUser> {
+export async function signInWithGoogleSSO(requestDriveScope = false): Promise<{ user: FirebaseUser; accessToken?: string }> {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({
     prompt: 'select_account',
   });
   
+  // CRITICAL: ONLY add drive.readonly scope if explicitly requested (by admin importing docs)
+  // Regular students logging in MUST NOT request Drive scope so Google does NOT block them as test users!
+  if (requestDriveScope) {
+    provider.addScope('https://www.googleapis.com/auth/drive.readonly');
+  }
+  
   const result = await signInWithPopup(auth, provider);
-  return result.user;
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (credential?.accessToken) {
+    cachedGoogleAccessToken = credential.accessToken;
+  }
+  return { user: result.user, accessToken: cachedGoogleAccessToken || undefined };
 }
 
 /**

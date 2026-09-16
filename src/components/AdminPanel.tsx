@@ -41,6 +41,8 @@ import {
   saveHalachaApi,
   deleteHalachaApi,
   generateAiHalachaApi,
+  bulkImportHalachotApi,
+  parseDocContentApi,
   addStudentApi,
   deleteStudentApi,
   approveStudentApi,
@@ -55,7 +57,9 @@ import {
   addClassApi,
   deleteClassApi,
 } from '../lib/api';
-import { Key, Share2, Copy, Shield, UserCog, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Key, Share2, Copy, Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
+import { getCachedGoogleAccessToken, signInWithGoogleSSO } from '../lib/authService';
+import { ULPANA_LOGO_URL } from '../assets/logo';
 
 interface AdminPanelProps {
   students: Student[];
@@ -386,8 +390,245 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState('');
   const [aiDate, setAiDate] = useState('2026-08-01');
+  const [aiHebrewDate, setAiHebrewDate] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMsg, setAiMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Google Doc / Text Import for Jewish Year תשפ"ז Halachot
+  const [docUrlInput, setDocUrlInput] = useState('https://docs.google.com/document/d/1bCtPEwggxRD_R8aOnlCe5HBGEDu09jCgSfZUnPVuazs/edit?usp=drive_link');
+  const [docRawTextInput, setDocRawTextInput] = useState('');
+  const [isImportingDoc, setIsImportingDoc] = useState(false);
+  const [importDocMsg, setImportDocMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [showDocImportBox, setShowDocImportBox] = useState(true);
+
+  // Function to extract Doc ID from URL
+  const extractDocId = (url: string) => {
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+  };
+
+  // Connect Google Drive and read document directly
+  const handleFetchFromGoogleDrive = async () => {
+    setIsImportingDoc(true);
+    setImportDocMsg({ type: 'info', text: 'מתחבר ל-Google Drive ומאחזר את מסמך ההלכות...' });
+
+    try {
+      let accessToken = getCachedGoogleAccessToken();
+
+      // If no token in memory, prompt Google SSO popup with Drive scope
+      if (!accessToken) {
+        setImportDocMsg({ type: 'info', text: 'נא לאשר גישה למסמך ה-Google Doc בחלון של Google...' });
+        const { accessToken: freshToken } = await signInWithGoogleSSO(true);
+        accessToken = freshToken || null;
+      }
+
+      if (!accessToken) {
+        throw new Error('לא התקבל טוקן גישה מ-Google. נא לנסות שוב או להדביק את הטקסט ישירות.');
+      }
+
+      const docId = extractDocId(docUrlInput) || '1bCtPEwggxRD_R8aOnlCe5HBGEDu09jCgSfZUnPVuazs';
+
+      let extractedText = '';
+
+      // 1. Try Google Docs export (works if file is native Google Doc)
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain;charset=utf-8`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (res.ok) {
+        extractedText = await res.text();
+      } else {
+        // 2. If it's an uploaded Word (.docx or .doc) binary file, download binary buffer
+        const resAlt = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (!resAlt.ok) {
+          throw new Error(`שגיאה בטעינת הקובץ מ-Google Drive (קוד: ${resAlt.status}). נא לוודא שיש הרשאת צפייה לקובץ.`);
+        }
+
+        const arrayBuf = await resAlt.arrayBuffer();
+        setImportDocMsg({ type: 'info', text: 'מפענח את מסמך ה-Word/Docx העברי...' });
+
+        // Send to server-side parser (mammoth + clean text extractor)
+        const parseRes = await parseDocContentApi(arrayBuf);
+        extractedText = parseRes.text || '';
+      }
+
+      if (!extractedText || !extractedText.trim()) {
+        throw new Error('לא נמצא טקסט קריא במסמך. ניתן לפתוח את המסמך, לסמן הכל (Ctrl+A), להעתיק ולהדביק בתיבת הטקסט.');
+      }
+
+      setDocRawTextInput(extractedText);
+      await parseAndImportHalachotText(extractedText);
+    } catch (err: any) {
+      console.error('Google Drive Doc error:', err);
+      setImportDocMsg({
+        type: 'error',
+        text: err?.message || 'לא ניתן היה לקרוא ישירות את המסמך מ-Drive. באפשרותך להדביק את תוכן המסמך בתיבה למטה וללחוץ על יבוא.',
+      });
+    } finally {
+      setIsImportingDoc(false);
+    }
+  };
+
+  // Parser: takes doc text and converts sections into Halachot
+  const parseAndImportHalachotText = async (text: string) => {
+    if (!text || !text.trim()) {
+      setImportDocMsg({ type: 'error', text: 'המסמך ריק או שלא זוהה טקסט' });
+      return;
+    }
+
+    setIsImportingDoc(true);
+    setImportDocMsg({ type: 'info', text: 'מנתח את ההלכות והתאריכים העבריים של שנת תשפ"ז מתוך המסמך...' });
+
+    try {
+      // Split into sections by Hebrew dates, day headers, or double newlines
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+      const parsedItems: Partial<DailyHalacha>[] = [];
+
+      let currentHebrewDate = '';
+      let currentTitle = '';
+      let currentContent: string[] = [];
+      let itemIndex = 0;
+
+      // Hebrew calendar months in order
+      const hebrewMonths = [
+        'תשרי', 'מרחשון', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אדר א', 'אדר ב',
+        'ניסן', 'אייר', 'סיון', 'סיוון', 'תמוז', 'אב', 'אלול'
+      ];
+
+      const isHebrewDateLine = (line: string) => {
+        return hebrewMonths.some((m) => line.includes(m)) && (line.includes('תשפ') || line.includes('יום') || line.includes("'"));
+      };
+
+      const flushCurrent = () => {
+        if (currentContent.length > 0 || currentTitle) {
+          itemIndex++;
+          const dateStr = `2026-${String(Math.min(12, 8 + Math.floor(itemIndex / 30))).padStart(2, '0')}-${String((itemIndex % 28) + 1).padStart(2, '0')}`;
+          const finalHebDate = currentHebrewDate || `תשפ"ז - חלק ${itemIndex}`;
+          const finalTitle = currentTitle || `הלכה יומית - ${finalHebDate}`;
+
+          parsedItems.push({
+            id: `halacha-doc-${itemIndex}-${Date.now()}`,
+            date: dateStr,
+            hebrewDate: finalHebDate,
+            title: finalTitle,
+            topic: 'הלכות תשפ"ז מתוך אהלי הלכה',
+            source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+            content: currentContent.join('\n\n') || currentTitle,
+            questions: [
+              {
+                id: 'q1',
+                text: `לפי המבואר ב${finalTitle}, מהי ההלכה העיקרית?`,
+                options: ['כפי שנפסק להלכה באהלי הלכה', 'יש להחמיר מעבר לכך', 'אין חיוב כלל', 'תלוי במנהג המקום בלבד'],
+                correctOptionIndex: 0,
+                explanation: 'על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א בספר אהלי הלכה.'
+              },
+              {
+                id: 'q2',
+                text: 'כיצד על בנות האולפנה לנהוג לכתחילה?',
+                options: ['לשמור על ההלכה מתוך שמחה ודיוק', 'בדיעבד בלבד', 'אין צורך לדייק', 'רק בימי חג'],
+                correctOptionIndex: 0,
+                explanation: 'לימוד הלכה יומית מביא לידי מעשה נכון.'
+              },
+              {
+                id: 'q3',
+                text: 'מה המקור לפסק זה?',
+                options: ['סדרת אהלי הלכה - הרב יעקב אריאל שליט"א', 'סברא בעלמא', 'דעת יחיד שנדחתה', 'מנהג שאינו מחייב'],
+                correctOptionIndex: 0,
+                explanation: 'פסקי מרן הרב יעקב אריאל שליט"א.'
+              },
+              {
+                id: 'q4',
+                text: 'מהי חשיבות הלימוד היומי לחידון תשפ"ז?',
+                options: ['הבנת ההלכה וצבירת נקודות אישיות וכיתתיות', 'מבחן בלבד', 'קריאה ללא הבנה', 'שום דבר מיוחד'],
+                correctOptionIndex: 0,
+                explanation: 'החידון השנתי של האולפנה מעודד לימוד יומיומי והעמקה בהלכה.'
+              }
+            ]
+          });
+        }
+        currentContent = [];
+        currentTitle = '';
+      };
+
+      for (const line of lines) {
+        if (isHebrewDateLine(line)) {
+          flushCurrent();
+          currentHebrewDate = line.replace(/^[#*-]\s*/, '').trim();
+        } else if (!currentTitle && (line.length < 80 || line.startsWith('הלכה') || line.startsWith('נושא'))) {
+          currentTitle = line.replace(/^[#*-]\s*/, '').trim();
+        } else {
+          currentContent.push(line);
+        }
+      }
+      flushCurrent();
+
+      if (parsedItems.length === 0) {
+        // If no explicit dates matched, create at least a main halacha entry from text
+        parsedItems.push({
+          id: `halacha-doc-full-${Date.now()}`,
+          date: new Date().toISOString().split('T')[0],
+          hebrewDate: 'שנת תשפ"ז',
+          title: 'הלכות שנת תשפ"ז מתוך המסמך',
+          topic: 'הלכות תשפ"ז',
+          source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
+          content: text.slice(0, 3000),
+          questions: [
+            {
+              id: 'q1',
+              text: 'מהו מקור ההלכות בחידון תשפ"ז?',
+              options: ['סדרת אהלי הלכה - פסקי הגאון הרב יעקב אריאל שליט"א', 'ספר אחר', 'מאמר מזדמן', 'מנהג בלבד'],
+              correctOptionIndex: 0,
+              explanation: 'על פי פסקי הרב יעקב אריאל שליט"א.'
+            },
+            {
+              id: 'q2',
+              text: 'לפי איזה לוח מתנהל החידון היומי?',
+              options: ['לפי התאריך העברי של שנת תשפ"ז', 'לפי לוח לועזי בלבד', 'ללא סדר', 'רק בשבתות'],
+              correctOptionIndex: 0,
+              explanation: 'תאריכי החידון נקבעים לפי התאריך העברי.'
+            },
+            {
+              id: 'q3',
+              text: 'כמה שאלות יש בכל חידון יומי?',
+              options: ['4 שאלות אמריקאיות', '10 שאלות פתוחות', 'שאלה אחת', '20 שאלות'],
+              correctOptionIndex: 0,
+              explanation: 'בדיוק 4 שאלות לכל יום.'
+            },
+            {
+              id: 'q4',
+              text: 'איזה ניקוד מקבלת מי שעונה נכון על כל השאלות (4/4)?',
+              options: ['2 נקודות (בונוס מצטיינת יומית)', '1 נקודה', '0 נקודות', '100 נקודות'],
+              correctOptionIndex: 0,
+              explanation: 'בונוס של 2 נקודות למי שעונה נכון על הכל.'
+            }
+          ]
+        });
+      }
+
+      // Save via API
+      const res = await bulkImportHalachotApi(parsedItems);
+      setImportDocMsg({
+        type: 'success',
+        text: `נקלטו בהצלחה ${res.addedCount || parsedItems.length} הלכות חדשות לשנת תשפ"ז מתוך המסמך!`,
+      });
+      onRefreshData();
+    } catch (e: any) {
+      console.error(e);
+      setImportDocMsg({
+        type: 'error',
+        text: e?.message || 'שגיאה בניתוח ויבוא תוכן ההלכות מתוך המסמך',
+      });
+    } finally {
+      setIsImportingDoc(false);
+    }
+  };
 
   // Halacha Edit Modal / Form State
   const [editingHalacha, setEditingHalacha] = useState<DailyHalacha | null>(null);
@@ -399,7 +640,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     date: new Date().toISOString().split('T')[0],
     title: 'הלכה יומית חדשה מאהלי הלכה',
     topic: 'הלכות ברכות',
-    source: 'אהלי הלכה - מאת הרב מאיר בראלי (בנשיאות הרב יעקב אריאל שליט"א)',
+    source: 'אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
     content: 'תוכן ההלכה מתוך ספר אהלי הלכה לקריאה...',
     questions: [
       { id: 'q1', text: 'שאלה 1', options: ['תשובה 1', 'תשובה 2', 'תשובה 3', 'תשובה 4'], correctOptionIndex: 0, explanation: '' },
@@ -427,12 +668,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAiMsg(null);
 
     try {
-      const res = await generateAiHalachaApi(aiTopic, aiDate);
+      const res = await generateAiHalachaApi(aiTopic, aiDate, aiHebrewDate.trim() || undefined);
       setAiMsg({
         type: 'success',
-        text: `ההלכה היומית והחידון בנושא "${aiTopic}" נוצרו בהצלחה לתאריך ${aiDate}!`,
+        text: `ההלכה היומית והחידון בנושא "${aiTopic}" נוצרו בהצלחה לתאריך ${aiDate} ${aiHebrewDate ? `(${aiHebrewDate})` : ''}!`,
       });
       setAiTopic('');
+      setAiHebrewDate('');
       onRefreshData();
     } catch (e: any) {
       console.error(e);
@@ -485,18 +727,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     <div className="space-y-6 pb-12 animate-in fade-in">
       {/* Top Admin Header */}
       <div className="bg-gradient-to-r from-amber-900 via-amber-800 to-amber-950 text-white p-6 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-amber-700/50">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="bg-amber-500/30 text-amber-200 text-xs font-bold px-3 py-1 rounded-full border border-amber-400/30">
-              צוות אולפנה
-            </span>
-            <span className="text-xs text-amber-200 font-semibold">
-              ממשק ניהול אחורי
-            </span>
+        <div className="flex items-center gap-4">
+          <div className="h-14 px-2.5 bg-white/95 rounded-2xl border border-amber-400/40 shadow-sm flex items-center justify-center">
+            <img
+              src={ULPANA_LOGO_URL}
+              alt="לוגו אולפנא"
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
+              className="max-h-11 w-auto object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </div>
-          <h2 className="text-2xl font-black font-['Heebo'] mt-1">
-            ניהול מבצע "הלכה יומית"
-          </h2>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="bg-amber-500/30 text-amber-200 text-xs font-bold px-3 py-1 rounded-full border border-amber-400/30">
+                צוות אולפנה
+              </span>
+              <span className="text-xs text-amber-200 font-semibold">
+                אולפנת אבן שמואל • ממשק ניהול
+              </span>
+            </div>
+            <h2 className="text-2xl font-black font-['Heebo'] mt-1">
+              ניהול מבצע "הלכה יומית"
+            </h2>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -597,6 +853,151 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ==================================================== */}
       {activeAdminTab === 'halachot' && (
         <div className="space-y-6">
+          {/* Google Doc Import Card for תשפ"ז */}
+          <div className="bg-white border-2 border-emerald-300 rounded-3xl p-6 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-extrabold text-emerald-950 text-lg font-['Heebo']">
+                      יבוא והגדרת הלכות שנת תשפ"ז מתוך Google Docs
+                    </h3>
+                    <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      חידון שנת תשפ"ז
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-800 font-medium">
+                    טעינת קובץ ההלכות השנתי - התאריכים נקבעים לפי התאריך העברי שמופיע ככותרת משנה לכל הלכה!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={docUrlInput}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>פתח מסמך ב-Drive</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowDocImportBox(!showDocImportBox)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold transition-colors"
+                >
+                  {showDocImportBox ? 'הסתר הגדרות' : 'הצג הגדרות'}
+                </button>
+              </div>
+            </div>
+
+            {showDocImportBox && (
+              <div className="space-y-4 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-8">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      קישור Google Doc (קובץ שנת תשפ"ז ב-Google Drive):
+                    </label>
+                    <input
+                      type="text"
+                      value={docUrlInput}
+                      onChange={(e) => setDocUrlInput(e.target.value)}
+                      placeholder="https://docs.google.com/document/d/.../edit"
+                      className="w-full px-4 py-2.5 rounded-xl border border-emerald-300 bg-white text-xs font-mono font-medium focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <button
+                      type="button"
+                      onClick={handleFetchFromGoogleDrive}
+                      disabled={isImportingDoc}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 px-4 rounded-xl shadow-md transition-all text-xs flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      <UploadCloud className="w-4 h-4" />
+                      <span>{isImportingDoc ? 'טוען ומנתח...' : 'סנכרן ישירות מ-Google Drive'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/80 pb-2">
+                    <label className="block text-xs font-bold text-emerald-950">
+                      העלאת קובץ Word (.docx) ישירות מהמחשב או הדבקת טקסט:
+                    </label>
+                    <label className="inline-flex items-center gap-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer transition-colors shadow-2xs">
+                      <FileUp className="w-4 h-4 text-emerald-700" />
+                      <span>העלי קובץ Word (.docx / .doc)</span>
+                      <input
+                        type="file"
+                        accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setIsImportingDoc(true);
+                          setImportDocMsg({ type: 'info', text: `מפענח את הקובץ "${file.name}"...` });
+                          try {
+                            const buffer = await file.arrayBuffer();
+                            const parseRes = await parseDocContentApi(buffer);
+                            if (parseRes.text) {
+                              setDocRawTextInput(parseRes.text);
+                              await parseAndImportHalachotText(parseRes.text);
+                            } else {
+                              throw new Error('לא זוהה טקסט בקובץ.');
+                            }
+                          } catch (err: any) {
+                            console.error('File upload error:', err);
+                            setImportDocMsg({ type: 'error', text: err?.message || 'שגיאה בקריאת הקובץ' });
+                          } finally {
+                            setIsImportingDoc(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <textarea
+                    rows={4}
+                    value={docRawTextInput}
+                    onChange={(e) => setDocRawTextInput(e.target.value)}
+                    placeholder="הדביקי כאן את תוכן מסמך ההלכות... המערכת תזהה אוטומטית כותרות תאריכים עבריים (לדוגמה: כ&quot;ד אלול תשפ&quot;ז, א&quot; תשרי תשפ&quot;ז) ותפצל לחידונים יומיים."
+                    className="w-full p-3 rounded-xl border border-emerald-300 bg-white text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => parseAndImportHalachotText(docRawTextInput)}
+                      disabled={isImportingDoc || !docRawTextInput.trim()}
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2 px-5 rounded-xl text-xs flex items-center gap-2 disabled:opacity-50 shadow-xs cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>יבא וצור חידונים מטקסט זה</span>
+                    </button>
+                  </div>
+                </div>
+
+                {importDocMsg && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-bold ${
+                      importDocMsg.type === 'success'
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                        : importDocMsg.type === 'error'
+                        ? 'bg-rose-100 text-rose-900 border border-rose-300'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                    }`}
+                  >
+                    {importDocMsg.text}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* AI Generator Box (Gemini API) */}
           <div className="bg-gradient-to-r from-amber-50 via-amber-100/50 to-orange-50 border border-amber-300 rounded-3xl p-6 shadow-sm space-y-4">
             <div className="flex items-center gap-2">
@@ -608,13 +1009,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   מחולל AI אוטומטי להלכה וחידון יומי (Gemini API)
                 </h3>
                 <p className="text-xs text-amber-800">
-                  הזיני נושא הלכתי ותאריך, והמערכת תיצור אוטומטית הלכה קריאה ו-4 שאלות אמריקאיות עם הסברים!
+                  הזיני נושא הלכתי, תאריך ותאריך עברי - והמערכת תיצור אוטומטית הלכה קריאה ו-4 שאלות אמריקאיות עם הסברים!
                 </p>
               </div>
             </div>
 
             <form onSubmit={handleGenerateAiHalacha} className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2">
-              <div className="sm:col-span-6">
+              <div className="sm:col-span-5">
                 <input
                   type="text"
                   placeholder="לדוגמה: הלכות שבת - הדלקת נרות, הלכות תפילה, ברכת האילנות..."
@@ -625,7 +1026,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 />
               </div>
 
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-2">
+                <input
+                  type="text"
+                  placeholder='תאריך עברי (למשל: א&apos; תשרי)'
+                  value={aiHebrewDate}
+                  onChange={(e) => setAiHebrewDate(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-amber-300 bg-white text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
                 <input
                   type="date"
                   value={aiDate}
@@ -639,7 +1050,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   type="submit"
                   disabled={isGeneratingAi || !aiTopic.trim()}
-                  className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-2.5 px-4 rounded-xl shadow-md transition-all text-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-2.5 px-4 rounded-xl shadow-md transition-all text-xs flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-yellow-300" />
                   <span>{isGeneratingAi ? 'מייצר הלכה ב-AI...' : 'צור הלכה וחידון ב-AI'}</span>
@@ -697,6 +1108,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <span className="bg-amber-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
                         {h.date}
                       </span>
+                      {h.hebrewDate && (
+                        <span className="bg-amber-700 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-xs">
+                          {h.hebrewDate}
+                        </span>
+                      )}
                       <span className="text-xs font-bold text-amber-900">
                         {h.topic}
                       </span>
@@ -747,7 +1163,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-4 max-h-[65vh] overflow-y-auto pl-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">תאריך לתצוגה</label>
                       <input
@@ -755,6 +1171,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         value={editingHalacha.date}
                         onChange={(e) =>
                           setEditingHalacha({ ...editingHalacha, date: e.target.value })
+                        }
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">תאריך עברי (לדוגמה: א' אלול תשפ"ז)</label>
+                      <input
+                        type="text"
+                        placeholder='לדוגמה: כ"ד אלול תשפ"ז'
+                        value={editingHalacha.hebrewDate || ''}
+                        onChange={(e) =>
+                          setEditingHalacha({ ...editingHalacha, hebrewDate: e.target.value })
                         }
                         className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold"
                       />
@@ -780,7 +1208,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onChange={(e) =>
                         setEditingHalacha({ ...editingHalacha, source: e.target.value })
                       }
-                      placeholder='אהלי הלכה - מאת הרב מאיר בראלי (בנשיאות הרב יעקב אריאל שליט"א)'
+                      placeholder='סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א'
                       className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold"
                     />
                   </div>

@@ -21,6 +21,7 @@ import { Student, DEFAULT_CLASSES } from '../types';
 import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
 import { signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
+import { ULPANA_LOGO_URL } from '../assets/logo';
 
 interface EntryScreenProps {
   onLoginSuccess: (student: Student | 'admin', token?: string) => void;
@@ -103,7 +104,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     setIsGoogleLoading(true);
 
     try {
-      const firebaseUser = await signInWithGoogleSSO();
+      const { user: firebaseUser } = await signInWithGoogleSSO();
       const idToken = await firebaseUser.getIdToken();
       const userEmail = (firebaseUser.email || '').trim().toLowerCase();
 
@@ -312,16 +313,30 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
           <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-amber-400/10 rounded-full blur-xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col items-center space-y-3">
-            <div className="w-16 h-16 rounded-2xl bg-amber-600/60 backdrop-blur-sm border border-amber-300/40 p-1 shadow-lg flex items-center justify-center">
-              <div className="w-full h-full bg-amber-950/70 rounded-xl flex items-center justify-center text-amber-300">
-                <Crown className="w-8 h-8 animate-pulse" />
+            <div className="flex items-center justify-center gap-3">
+              <div className="h-16 px-3 bg-white/95 backdrop-blur-sm border border-amber-300/60 rounded-2xl shadow-lg flex items-center justify-center">
+                <img
+                  src={ULPANA_LOGO_URL}
+                  alt="לוגו אולפנא"
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                  className="max-h-12 w-auto object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                    if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                  }}
+                />
+                <div className="logo-fallback hidden w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-yellow-400 items-center justify-center text-amber-950">
+                  <Crown className="w-6 h-6 text-amber-950" />
+                </div>
               </div>
             </div>
 
             <div>
               <div className="inline-flex items-center gap-1.5 bg-amber-600/40 border border-amber-300/30 text-amber-200 text-xs px-3 py-1 rounded-full font-bold mb-2">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>מבצע הלכה יומית באולפנה • תשפ"ו</span>
+                <span>חידון הלכה יומית באולפנה • תשפ"ז</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-['Heebo']">
                 ספר "אהלי הלכה"
@@ -896,7 +911,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       {/* Footer */}
       <div className="text-center mt-6 text-xs text-amber-900/70 font-medium space-y-1">
         <p>אולפנת בני עקיבא • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
-        <p className="text-[11px] text-amber-800/60">תשפ"ו • כל הזכויות שמורות</p>
+        <p className="text-[11px] text-amber-800/60">תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א</p>
       </div>
     </div>
   );

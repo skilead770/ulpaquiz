@@ -15,6 +15,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { Student } from '../types';
+import { ULPANA_LOGO_URL } from '../assets/logo';
 
 interface NavbarProps {
   students: Student[];
@@ -56,9 +57,22 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-18">
           {/* Brand & Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 p-0.5 shadow-md flex items-center justify-center">
-              <div className="w-full h-full bg-amber-900/90 rounded-[14px] flex items-center justify-center text-amber-300">
-                <Crown className="w-6 h-6 animate-pulse" />
+            <div className="h-12 w-auto max-w-[140px] flex items-center justify-center p-1 bg-white/80 rounded-xl border border-amber-200/80 shadow-xs">
+              <img
+                src={ULPANA_LOGO_URL}
+                alt="לוגו אולפנא"
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+                className="max-h-10 w-auto object-contain"
+                onError={(e) => {
+                  // Fallback if blocked by external domain
+                  e.currentTarget.style.display = 'none';
+                  const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                  if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                }}
+              />
+              <div className="logo-fallback hidden w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-600 to-yellow-400 items-center justify-center text-amber-950 font-black">
+                <Crown className="w-5 h-5 text-amber-950" />
               </div>
             </div>
             <div>
@@ -71,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
               <p className="text-xs text-amber-800/80 font-medium hidden sm:block">
-                אולפנא • לימוד יומי מתוך סדרת "אהלי הלכה"
+                אולפנת אבן שמואל • לימוד יומי מתוך סדרת "אהלי הלכה"
               </p>
             </div>
           </div>

@@ -108,7 +108,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 החידון היומי - {halacha.topic}
               </h3>
               <p className="text-xs text-amber-100 font-medium">
-                מתוך "אהלי הלכה" (הרב מאיר בראלי, בנשיאות הרב יעקב אריאל) • {halacha.date} • 4 שאלות
+                מתוך "אהלי הלכה" • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א • {halacha.date} • 4 שאלות
               </p>
             </div>
           </div>

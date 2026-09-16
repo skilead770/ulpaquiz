@@ -164,7 +164,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
                 }`}
               >
-                <span>{h.date}</span>
+                <span>{h.hebrewDate ? `${h.hebrewDate}` : h.date}</span>
                 {isDone && (
                   <CheckCircle2
                     className={`w-3.5 h-3.5 ${
@@ -189,11 +189,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <BookOpen className="w-3.5 h-3.5" />
                   <span>{currentHalacha.topic}</span>
                 </span>
+                {currentHalacha.hebrewDate && (
+                  <span className="bg-amber-700 text-white text-xs font-black px-3 py-1 rounded-full shadow-xs">
+                    🗓️ {currentHalacha.hebrewDate}
+                  </span>
+                )}
                 <span className="bg-amber-200/80 text-amber-950 text-xs font-extrabold px-3 py-1 rounded-full border border-amber-300">
-                  📚 {currentHalacha.source || 'אהלי הלכה - הרב מאיר בראלי (בנשיאות הרב יעקב אריאל)'}
+                  📚 {currentHalacha.source || 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א'}
                 </span>
                 <span className="text-xs font-medium text-amber-800">
-                  • תאריך: {currentHalacha.date}
+                  • {currentHalacha.date}
                 </span>
               </div>
               <h3 className="text-xl sm:text-2xl font-extrabold text-amber-950 font-['Heebo']">
