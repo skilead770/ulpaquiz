@@ -424,18 +424,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
 
       const docId = extractDocId(docUrlInput) || '1bCtPEwggxRD_R8aOnlCe5HBGEDu09jCgSfZUnPVuazs';
-
       let extractedText = '';
 
-      // 1. Try Google Docs export (works if file is native Google Doc)
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain;charset=utf-8`, {
+      // 1. Try Google Docs export (FIXED: removed the broken charset string parameter)
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       });
 
       if (res.ok) {
-        extractedText = await res.text();
+        // Safe cross-platform text decoding to prevent Hebrew layout distortion
+        const buffer = await res.arrayBuffer();
+        extractedText = new TextDecoder('utf-8').decode(buffer);
       } else {
         // 2. If it's an uploaded Word (.docx or .doc) binary file, download binary buffer
         const resAlt = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media`, {
