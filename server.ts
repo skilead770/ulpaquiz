@@ -1488,7 +1488,7 @@ ${rawContent ? `הסתמך במדויק על טקסט המקור הבא מתוך
 ודא שכל 4 השאלות מכילות בדיוק 4 אפשרויות בתשובות, והאינדקס correctOptionIndex הוא בין 0 ל-3. אל תוסיף שום טקסט מחוץ ל-JSON.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: prompt,
       });
 
