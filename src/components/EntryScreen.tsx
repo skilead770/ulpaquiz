@@ -305,23 +305,23 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50/70 via-white to-amber-100/40 flex flex-col justify-center items-center p-4 sm:p-6 font-['Assistant',sans-serif]">
+    <div className="min-h-screen bg-gradient-to-b from-amber-50/70 via-white to-amber-100/40 flex flex-col justify-center items-center p-3 sm:p-6 font-['Assistant',sans-serif]">
       {/* Main Card */}
       <div className="w-full max-w-lg bg-white rounded-3xl border border-amber-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header Banner */}
-        <div className="bg-gradient-to-r from-amber-800 via-amber-700 to-amber-900 text-white p-6 sm:p-8 text-center relative overflow-hidden">
+        <div className="bg-gradient-to-r from-amber-800 via-amber-700 to-amber-900 text-white p-5 sm:p-8 text-center relative overflow-hidden">
           <div className="absolute -top-12 -right-12 w-36 h-36 bg-yellow-400/20 rounded-full blur-2xl pointer-events-none" />
           <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-amber-400/10 rounded-full blur-xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col items-center space-y-3">
             <div className="flex items-center justify-center gap-3">
-              <div className="h-16 px-3 bg-white/95 backdrop-blur-sm border border-amber-300/60 rounded-2xl shadow-lg flex items-center justify-center">
+              <div className="h-14 sm:h-16 px-3 bg-white/95 backdrop-blur-sm border border-amber-300/60 rounded-2xl shadow-lg flex items-center justify-center">
                 <img
                   src={ULPANA_LOGO_URL}
                   alt="לוגו אולפנא"
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
-                  className="max-h-12 w-auto object-contain"
+                  className="max-h-10 sm:max-h-12 w-auto object-contain"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
@@ -335,8 +335,8 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             </div>
 
             <div>
-              <div className="inline-flex items-center gap-1.5 bg-amber-600/40 border border-amber-300/30 text-amber-200 text-xs px-3 py-1 rounded-full font-bold mb-2">
-                <Sparkles className="w-3.5 h-3.5" />
+              <div className="inline-flex items-center gap-1.5 bg-amber-600/40 border border-amber-300/30 text-amber-200 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 rounded-full font-bold mb-2">
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
                 <span>חידון הלכה יומית באולפנה • תשפ"ז</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-['Heebo']">
@@ -351,7 +351,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
 
         {/* Tabs: Hidden in Pending Approval mode */}
         {mode !== 'pending' && (
-          <div className="flex border-b border-amber-200/80 bg-amber-50/50 p-1.5">
+          <div className="flex border-b border-amber-200/80 bg-amber-50/50 p-1 sm:p-1.5 gap-1">
             <button
               type="button"
               onClick={() => {
@@ -359,14 +359,14 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 sm:py-3 px-1.5 sm:px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1 sm:gap-1.5 ${
                 mode === 'register'
                   ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
                   : 'text-amber-900/70 hover:text-amber-950'
               }`}
             >
-              <UserPlus className="w-4 h-4 text-amber-600" />
-              <span>הרשמה חדשה</span>
+              <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
+              <span>הרשמה<span className="hidden sm:inline"> חדשה</span></span>
             </button>
 
             <button
@@ -376,14 +376,14 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 sm:py-3 px-1.5 sm:px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1 sm:gap-1.5 ${
                 mode === 'login'
                   ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
                   : 'text-amber-900/70 hover:text-amber-950'
               }`}
             >
-              <LogIn className="w-4 h-4 text-amber-600" />
-              <span>כניסת תלמידה</span>
+              <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
+              <span>כניסה<span className="hidden sm:inline"> לתלמידה</span></span>
             </button>
 
             <button
@@ -393,20 +393,20 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 sm:py-3 px-1.5 sm:px-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-center gap-1 sm:gap-1.5 ${
                 mode === 'admin_login'
                   ? 'bg-white text-amber-950 shadow-sm border border-amber-200/70'
                   : 'text-amber-900/70 hover:text-amber-950'
               }`}
             >
-              <ShieldCheck className="w-4 h-4 text-amber-600" />
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
               <span>כניסת מנהל</span>
             </button>
           </div>
         )}
 
         {/* Content Body */}
-        <div className="p-6 sm:p-8 space-y-5">
+        <div className="p-4 sm:p-8 space-y-4 sm:space-y-5">
           {error && (
             <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-start gap-2 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -886,12 +886,12 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
           )}
 
           {/* Staff / Admin Entry Link */}
-          <div className="pt-4 border-t border-amber-100/80 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600 bg-amber-50/50 -mx-6 -mb-6 sm:-mx-8 sm:-mb-8 p-4 rounded-b-3xl border-t border-amber-200/60">
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-slate-600 bg-amber-50/50 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 p-3.5 sm:p-4 rounded-b-3xl border-t border-amber-200/60">
             <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
-              <ShieldCheck className="w-4 h-4 text-amber-700" />
+              <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
               <span>מנהל/ת מערכת או צוות?</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => {
@@ -899,7 +899,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   setError(null);
                   setSuccessMsg(null);
                 }}
-                className="font-bold text-xs text-white bg-amber-700 hover:bg-amber-800 px-3.5 py-1.5 rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                className="w-full sm:w-auto font-bold text-xs text-white bg-amber-700 hover:bg-amber-800 px-3.5 py-2 rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <Lock className="w-3.5 h-3.5" />
                 <span>כניסה מאובטחת למנהל (Google SSO)</span>

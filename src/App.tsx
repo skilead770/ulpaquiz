@@ -154,7 +154,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8">
         {activeTab === 'study' && currentStudent && (
           <Dashboard
             student={currentStudent}
@@ -193,8 +193,8 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-amber-200/60 py-6 text-center text-xs text-amber-900/80 font-medium">
-        <p>
+      <footer className="bg-white border-t border-amber-200/60 py-6 px-4 text-center text-xs text-amber-900/80 font-medium mb-16 md:mb-0">
+        <p className="max-w-xl mx-auto leading-relaxed">
           מערכת "חידון הלכה יומית" לאולפנה • תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א • מוקדש להגדלת תורה ולהאדרתה
         </p>
       </footer>

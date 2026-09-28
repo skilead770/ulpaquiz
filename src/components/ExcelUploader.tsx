@@ -113,7 +113,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({ onStudentsLoaded }
 
         <button
           onClick={downloadSampleTemplate}
-          className="bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+          className="w-full sm:w-auto justify-center bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
         >
           <Download className="w-3.5 h-3.5" />
           <span>הורד קובץ דוגמה (Template)</span>

@@ -724,125 +724,129 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
       {/* Top Admin Header */}
-      <div className="bg-gradient-to-r from-amber-900 via-amber-800 to-amber-950 text-white p-6 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-amber-700/50">
-        <div className="flex items-center gap-4">
-          <div className="h-14 px-2.5 bg-white/95 rounded-2xl border border-amber-400/40 shadow-sm flex items-center justify-center">
-            <img
-              src={ULPANA_LOGO_URL}
-              alt="לוגו אולפנא"
-              referrerPolicy="no-referrer"
-              crossOrigin="anonymous"
-              className="max-h-11 w-auto object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="bg-amber-500/30 text-amber-200 text-xs font-bold px-3 py-1 rounded-full border border-amber-400/30">
-                צוות אולפנה
-              </span>
-              <span className="text-xs text-amber-200 font-semibold">
-                אולפנת אבן שמואל • ממשק ניהול
-              </span>
+      <div className="bg-gradient-to-r from-amber-900 via-amber-800 to-amber-950 text-white p-4 sm:p-6 rounded-3xl shadow-xl flex flex-col gap-4 border border-amber-700/50">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="h-12 sm:h-14 px-2 sm:px-2.5 bg-white/95 rounded-2xl border border-amber-400/40 shadow-sm flex items-center justify-center shrink-0">
+              <img
+                src={ULPANA_LOGO_URL}
+                alt="לוגו אולפנא"
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+                className="max-h-9 sm:max-h-11 w-auto object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
             </div>
-            <h2 className="text-2xl font-black font-['Heebo'] mt-1">
-              ניהול מבצע "הלכה יומית"
-            </h2>
+            <div className="min-w-0 truncate">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="bg-amber-500/30 text-amber-200 text-xs font-bold px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full border border-amber-400/30">
+                  צוות אולפנה
+                </span>
+                <span className="text-xs text-amber-200 font-semibold truncate">
+                  אולפנת אבן שמואל • ממשק ניהול
+                </span>
+              </div>
+              <h2 className="text-lg sm:text-2xl font-black font-['Heebo'] mt-1 truncate">
+                ניהול מבצע "הלכה יומית"
+              </h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="px-3 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-amber-100 border border-white/20 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="רענן נתונים מהשרת"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-300' : ''}`} />
+              <span>רענון נתונים</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleManualRefresh}
-            disabled={isRefreshing}
-            className="px-3 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-amber-100 border border-white/20 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-            title="רענן נתונים מהשרת"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-300' : ''}`} />
-            <span>רענון נתונים</span>
-          </button>
+        {/* Admin Subtabs */}
+        <div className="w-full overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+          <div className="flex items-center gap-1.5 bg-black/20 p-1.5 rounded-2xl border border-white/10 w-max sm:w-auto">
+            <button
+              onClick={() => setActiveAdminTab('halachot')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'halachot'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span>הלכות וחידונים</span>
+            </button>
 
-          {/* Admin Subtabs */}
-          <div className="flex items-center gap-1.5 bg-black/20 p-1.5 rounded-2xl border border-white/10">
-          <button
-            onClick={() => setActiveAdminTab('halachot')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'halachot'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>הלכות וחידונים</span>
-          </button>
+            <button
+              onClick={() => setActiveAdminTab('students')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'students'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>תלמידות ואקסל</span>
+              {pendingStudents.length > 0 && (
+                <span className="bg-rose-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full animate-pulse">
+                  {pendingStudents.length}
+                </span>
+              )}
+            </button>
 
-          <button
-            onClick={() => setActiveAdminTab('students')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'students'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>תלמידות ואקסל</span>
-            {pendingStudents.length > 0 && (
-              <span className="bg-rose-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full animate-pulse">
-                {pendingStudents.length}
-              </span>
-            )}
-          </button>
+            <button
+              onClick={() => setActiveAdminTab('prizes')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'prizes'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <Award className="w-4 h-4 shrink-0" />
+              <span>דו"ח פרסים וזוכים</span>
+            </button>
 
-          <button
-            onClick={() => setActiveAdminTab('prizes')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'prizes'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <Award className="w-4 h-4" />
-            <span>דו"ח פרסים וזוכים</span>
-          </button>
+            <button
+              onClick={() => setActiveAdminTab('invitations')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'invitations'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <Key className="w-4 h-4 shrink-0" />
+              <span>הזמנות וקודים</span>
+            </button>
 
-          <button
-            onClick={() => setActiveAdminTab('invitations')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'invitations'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            <span>הזמנות וקודים</span>
-          </button>
+            <button
+              onClick={() => setActiveAdminTab('managers')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'managers'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-yellow-300 shrink-0" />
+              <span>מנהלים ({managers.length || 1})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveAdminTab('managers')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'managers'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4 text-yellow-300" />
-            <span>מנהלי מערכת ({managers.length || 1})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveAdminTab('classes')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeAdminTab === 'classes'
-                ? 'bg-amber-600 text-white shadow-md'
-                : 'text-amber-200 hover:bg-white/10'
-            }`}
-          >
-            <GraduationCap className="w-4 h-4 text-amber-300" />
-            <span>ניהול כיתות ({classesList.length})</span>
-          </button>
-        </div>
+            <button
+              onClick={() => setActiveAdminTab('classes')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'classes'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <GraduationCap className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>כיתות ({classesList.length})</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1146,21 +1150,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Edit / Create Halacha Modal */}
           {editingHalacha && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-              <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-amber-200 p-6 sm:p-8 space-y-6 my-8">
-                <div className="flex items-center justify-between border-b border-amber-100 pb-4">
-                  <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo']">
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+              <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-amber-200 p-4 sm:p-8 space-y-4 sm:space-y-6 my-auto max-h-[92vh] flex flex-col">
+                <div className="flex items-center justify-between border-b border-amber-100 pb-3 sm:pb-4 shrink-0">
+                  <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo']">
                     עריכת הלכה יומית וחידון
                   </h3>
                   <button
                     onClick={() => setEditingHalacha(null)}
-                    className="text-slate-400 hover:text-slate-600 font-bold"
+                    className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
                   >
                     סגור ✕
                   </button>
                 </div>
 
-                <div className="space-y-4 max-h-[65vh] overflow-y-auto pl-2">
+                <div className="space-y-4 overflow-y-auto flex-1 pl-1">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">תאריך לתצוגה</label>
@@ -1572,20 +1576,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Add Student Modal */}
           {isAddStudentModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-6 space-y-5 my-8">
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-4 sm:p-6 space-y-4 sm:space-y-5 my-auto max-h-[92vh] overflow-y-auto">
                 <div className="flex items-center justify-between border-b border-amber-100 pb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
                       <UserPlus className="w-5 h-5" />
                     </div>
-                    <h3 className="text-lg font-extrabold text-amber-950 font-['Heebo']">
+                    <h3 className="text-base sm:text-lg font-extrabold text-amber-950 font-['Heebo']">
                       הוספת תלמידה חדשה
                     </h3>
                   </div>
                   <button
                     onClick={() => setIsAddStudentModalOpen(false)}
-                    className="text-slate-400 hover:text-slate-600 font-bold"
+                    className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
                   >
                     ✕
                   </button>
@@ -1606,7 +1610,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         כיתה <span className="text-rose-500">*</span>
@@ -1706,8 +1710,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Edit Student Modal */}
           {editingStudent && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-6 space-y-5 my-8">
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-4 sm:p-6 space-y-4 sm:space-y-5 my-auto max-h-[92vh] overflow-y-auto">
                 <div className="flex items-center justify-between border-b border-amber-100 pb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
@@ -1724,7 +1728,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                   <button
                     onClick={() => setEditingStudent(null)}
-                    className="text-slate-400 hover:text-slate-600 p-1"
+                    className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -1765,7 +1769,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         כיתה <span className="text-rose-500">*</span>
@@ -1817,7 +1821,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         סטטוס במערכת
@@ -2071,16 +2075,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* New Invitation Modal */}
           {isNewInvModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl p-6 border border-amber-200 shadow-2xl max-w-md w-full space-y-4 animate-in zoom-in-95">
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <div className="bg-white rounded-3xl p-4 sm:p-6 border border-amber-200 shadow-2xl max-w-md w-full space-y-4 animate-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <h3 className="font-extrabold text-amber-950 text-base flex items-center gap-2 font-['Heebo']">
-                    <Key className="w-5 h-5 text-amber-600" />
+                    <Key className="w-5 h-5 text-amber-600 shrink-0" />
                     <span>יצירת קוד הזמנה חדש</span>
                   </h3>
                   <button
                     onClick={() => setIsNewInvModalOpen(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -2101,7 +2105,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         כיתה *

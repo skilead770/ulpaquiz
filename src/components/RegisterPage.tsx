@@ -144,16 +144,16 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8 py-4 animate-in fade-in duration-300">
+    <div className="max-w-3xl mx-auto space-y-5 sm:space-y-8 py-2 sm:py-4 animate-in fade-in duration-300">
       {/* Banner Header */}
-      <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-600 text-white p-6 sm:p-8 rounded-3xl shadow-lg relative overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-600 text-white p-5 sm:p-8 rounded-3xl shadow-lg relative overflow-hidden">
         <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="relative z-10 space-y-3">
-          <div className="inline-flex items-center gap-2 bg-amber-900/40 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs font-bold border border-amber-300/30">
+        <div className="relative z-10 space-y-2.5 sm:space-y-3">
+          <div className="inline-flex items-center gap-2 bg-amber-900/40 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold border border-amber-300/30">
             <UserPlus className="w-4 h-4 text-amber-300" />
             <span>הרשמה למבצע הלכה יומית</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-extrabold font-['Heebo']">
+          <h2 className="text-xl sm:text-3xl font-extrabold font-['Heebo']">
             הרשמת תלמידה חדשה
           </h2>
           <p className="text-amber-100 text-xs sm:text-sm max-w-xl font-medium leading-relaxed">
@@ -166,25 +166,25 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
       {registeredStudent ? (
         /* Success Card */
-        <div className="bg-white p-8 rounded-3xl border border-emerald-200 shadow-xl text-center space-y-6 animate-in zoom-in-95">
-          <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+        <div className="bg-white p-5 sm:p-8 rounded-3xl border border-emerald-200 shadow-xl text-center space-y-5 sm:space-y-6 animate-in zoom-in-95">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
             {isAutoApprovedResult ? (
-              <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+              <CheckCircle2 className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-600" />
             ) : (
-              <Clock className="w-10 h-10 animate-pulse" />
+              <Clock className="w-8 h-8 sm:w-10 sm:h-10 animate-pulse" />
             )}
           </div>
 
           <div className="space-y-2">
-            <h3 className="text-2xl font-extrabold text-slate-900 font-['Heebo']">
+            <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900 font-['Heebo']">
               {isAutoApprovedResult ? 'הרשמתך אושרה בהצלחה!' : 'בקשת ההרשמה נקלטה בהצלחה!'}
             </h3>
-            <p className="text-sm text-slate-600 max-w-md mx-auto">
+            <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
               תודה <span className="font-bold text-amber-800">{registeredStudent.fullName}</span> (כיתה {registeredStudent.className})!
             </p>
           </div>
 
-          <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 text-right max-w-md mx-auto space-y-2 text-xs text-amber-950 font-semibold">
+          <div className="bg-amber-50 p-4 sm:p-5 rounded-2xl border border-amber-200 text-right max-w-md mx-auto space-y-2 text-xs text-amber-950 font-semibold">
             <div className="flex items-center justify-between border-b border-amber-200/80 pb-2">
               <span>סטטוס הרשמה:</span>
               <span className={`px-2.5 py-1 rounded-full font-bold flex items-center gap-1 ${
@@ -225,7 +225,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               : '💡 ברגע שמנהלת האולפנה תאשר את הבקשה, השם שלך יופיע ברשימת התלמידות ותוכלי להתחיל ללמוד ולצבור נקודות!'}
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3 pt-2">
             <button
               onClick={() => {
                 setRegisteredStudent(null);
@@ -234,14 +234,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 setInvitationCode('');
                 setInvitationValidInfo(null);
               }}
-              className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
             >
               הרשמת תלמידה נוספת
             </button>
 
             <button
               onClick={onGoToStudy}
-              className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2"
             >
               <BookOpen className="w-4 h-4" />
               <span>עבור לעמוד הלימוד</span>
@@ -250,8 +250,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         </div>
       ) : (
         /* Form Card */
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 bg-white p-6 sm:p-8 rounded-3xl border border-amber-200 shadow-xl space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6">
+          <div className="md:col-span-2 bg-white p-4 sm:p-8 rounded-3xl border border-amber-200 shadow-xl space-y-5 sm:space-y-6">
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Optional Invitation Code Box */}
               <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200/90 space-y-2">

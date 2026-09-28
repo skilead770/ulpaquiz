@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Award, Sparkles, X, Trophy, HeartHandshake } from 'lucide-react';
+import { Sparkles, X, Trophy } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PrizeMilestone } from '../types';
 
@@ -23,18 +23,19 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
   }, [milestone]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-gradient-to-b from-amber-50 via-white to-amber-100/60 w-full max-w-md rounded-3xl shadow-2xl border-2 border-amber-300 p-6 sm:p-8 text-center space-y-6 relative overflow-hidden animate-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in overflow-y-auto">
+      <div className="bg-gradient-to-b from-amber-50 via-white to-amber-100/60 w-full max-w-md rounded-3xl shadow-2xl border-2 border-amber-300 p-5 sm:p-8 text-center space-y-4 sm:space-y-6 relative overflow-hidden animate-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
         <button
           onClick={onClose}
-          className="absolute top-4 left-4 w-8 h-8 rounded-full bg-amber-200/60 hover:bg-amber-300 flex items-center justify-center text-amber-900 transition-colors"
+          className="absolute top-3.5 left-3.5 sm:top-4 sm:left-4 w-8 h-8 rounded-full bg-amber-200/60 hover:bg-amber-300 flex items-center justify-center text-amber-900 transition-colors cursor-pointer"
+          aria-label="סגור חלון פרס"
         >
           <X className="w-4 h-4" />
         </button>
 
         {/* Big Trophy Badge */}
-        <div className="mx-auto w-24 h-24 rounded-full bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-300 text-white flex items-center justify-center shadow-xl shadow-amber-500/40 relative">
-          <Trophy className="w-12 h-12 animate-bounce" />
+        <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-300 text-white flex items-center justify-center shadow-xl shadow-amber-500/40 relative">
+          <Trophy className="w-10 h-10 sm:w-12 sm:h-12 animate-bounce" />
           <div className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
             אבן דרך!
           </div>
@@ -46,7 +47,7 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
             הגעת ל-{milestone.points} נקודות אישיות! 🎉
           </span>
 
-          <h3 className="text-2xl font-extrabold text-amber-950 font-['Heebo']">
+          <h3 className="text-xl sm:text-2xl font-extrabold text-amber-950 font-['Heebo']">
             {milestone.points === 10
               ? 'כל הכבוד! הגעת ל-10 נקודות, המשיכי כך!'
               : milestone.points === 50
@@ -54,12 +55,12 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
               : `אלופה! הגעת ליעד של ${milestone.points} נקודות!`}
           </h3>
 
-          <p className="text-amber-900 text-sm font-semibold leading-relaxed">
+          <p className="text-amber-900 text-xs sm:text-sm font-semibold leading-relaxed">
             {milestone.title}: {milestone.rewardDescription}
           </p>
         </div>
 
-        <div className="bg-amber-100/80 border border-amber-200 p-4 rounded-2xl text-xs text-amber-900 font-bold flex items-center gap-2 text-right">
+        <div className="bg-amber-100/80 border border-amber-200 p-3.5 sm:p-4 rounded-2xl text-xs text-amber-900 font-bold flex items-center gap-2 text-right">
           <Sparkles className="w-5 h-5 text-amber-600 shrink-0" />
           <span>
             צוות האולפנה גאה בך על ההתמדה והלימוד היומי. הפרס האישי מחכה לך בחדר המורות!
@@ -68,7 +69,7 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
 
         <button
           onClick={onClose}
-          className="w-full bg-gradient-to-r from-amber-600 to-yellow-500 text-white font-black text-sm py-3.5 rounded-2xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+          className="w-full bg-gradient-to-r from-amber-600 to-yellow-500 text-white font-black text-sm py-3.5 rounded-2xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
         >
           המשיכי בלימוד והצלחה! ✨
         </button>

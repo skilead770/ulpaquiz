@@ -59,44 +59,47 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
   const myClassCompletedCount = myClassmates.filter((s) => s.completedToday).length;
 
   return (
-    <div className="space-y-6 pb-12 animate-in fade-in">
+    <div className="space-y-4 sm:space-y-6 pb-6 animate-in fade-in">
       {/* Tab Switcher Bar */}
-      <div className="bg-white p-2 rounded-2xl border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+      <div className="bg-white p-1.5 sm:p-2 rounded-2xl border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none">
           <button
             onClick={() => setActiveSubTab('my-class')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
               activeSubTab === 'my-class'
                 ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
                 : 'text-amber-900/80 hover:bg-amber-100/70'
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>הכיתה שלי (מי עוד סיימה?)</span>
+            <Users className="w-4 h-4 shrink-0" />
+            <span>הכיתה שלי</span>
+            <span className="hidden sm:inline"> (מי עוד סיימה?)</span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('class-league')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
               activeSubTab === 'class-league'
                 ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
                 : 'text-amber-900/80 hover:bg-amber-100/70'
             }`}
           >
-            <Trophy className="w-4 h-4" />
-            <span>תחרות הכיתות</span>
+            <Trophy className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">תחרות </span>
+            <span>הכיתות</span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('grade-league')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
               activeSubTab === 'grade-league'
                 ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
                 : 'text-amber-900/80 hover:bg-amber-100/70'
             }`}
           >
-            <GraduationCap className="w-4 h-4" />
-            <span>תחרות השכבות</span>
+            <GraduationCap className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">תחרות </span>
+            <span>השכבות</span>
           </button>
         </div>
 
@@ -109,12 +112,12 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           TAB 1: MY CLASS ("הכיתה שלי")
       ======================================= */}
       {activeSubTab === 'my-class' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Top Banner: Leading Student(s) in Ulpana (Handles Ties!) */}
-          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-500 rounded-3xl p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
+          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
-              <Crown className="w-4 h-4 text-yellow-200 animate-bounce" />
-              <span>התלמידה המובילה באולפנה (מקום 1 במאזן הארצי)</span>
+              <Crown className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
+              <span>התלמידה המובילה באולפנה (מקום 1)</span>
             </div>
 
             {leaderboardData.leadingStudents.length > 1 ? (
@@ -146,17 +149,17 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
               </div>
             ) : leaderboardData.leadingStudents.length === 1 ? (
               /* Single Leader */
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                  <h3 className="text-2xl sm:text-3xl font-black font-['Heebo'] text-white">
+                  <h3 className="text-xl sm:text-3xl font-black font-['Heebo'] text-white">
                     {leaderboardData.leadingStudents[0].fullName}
                   </h3>
-                  <p className="text-amber-100 text-sm font-semibold">
+                  <p className="text-amber-100 text-xs sm:text-sm font-semibold">
                     כיתה {leaderboardData.leadingStudents[0].className} • שכבה{' '}
                     {leaderboardData.leadingStudents[0].grade}'
                   </p>
                 </div>
-                <div className="bg-white text-amber-950 px-5 py-2.5 rounded-2xl shadow-md font-black text-xl font-['Heebo'] text-center">
+                <div className="w-full sm:w-auto bg-white text-amber-950 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl shadow-md font-black text-lg sm:text-xl font-['Heebo'] text-center">
                   {leaderboardData.leadingStudents[0].points} נקודות
                 </div>
               </div>
@@ -164,13 +167,13 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           </div>
 
           {/* Personal Prize Tracker Meter */}
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-600 text-white flex items-center justify-center font-bold shadow-md shrink-0">
-                <Award className="w-6 h-6" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-600 text-white flex items-center justify-center font-bold shadow-md shrink-0">
+                <Award className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div>
-                <h4 className="font-extrabold text-amber-950 text-base font-['Heebo']">
+                <h4 className="font-extrabold text-amber-950 text-sm sm:text-base font-['Heebo']">
                   המדד האישי שלך לפרס הבא: {nextMilestone.title}
                 </h4>
                 <p className="text-xs text-amber-800 font-semibold">
@@ -181,38 +184,38 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
               </div>
             </div>
 
-            <div className="w-full sm:w-auto bg-amber-100 border border-amber-300 text-amber-900 px-4 py-2 rounded-xl text-xs font-bold text-center">
+            <div className="w-full sm:w-auto bg-amber-100 border border-amber-300 text-amber-900 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold text-center shrink-0">
               מאזן נוכחי: {currentStudent.points} נק'
             </div>
           </div>
 
           {/* Classmates Completion List */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-amber-200/80 space-y-4">
-            <div className="flex items-center justify-between border-b border-amber-100 pb-4">
+          <div className="bg-white rounded-3xl p-4 sm:p-6 shadow-sm border border-amber-200/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-amber-100 pb-3 sm:pb-4">
               <div>
-                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
-                  <Users className="w-5 h-5 text-amber-600" />
+                <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-600 shrink-0" />
                   <span>בנות כיתה {currentStudent.className} ("מי עוד סיימה?")</span>
                 </h3>
-                <p className="text-xs text-amber-800 font-medium">
+                <p className="text-xs text-amber-800 font-medium mt-0.5">
                   {myClassCompletedCount} מתוך {myClassmates.length} בנות בכיתה כבר למדו וענו היום!
                 </p>
               </div>
 
-              <div className="bg-amber-100 text-amber-900 px-3 py-1 rounded-full text-xs font-bold border border-amber-200">
+              <div className="bg-amber-100 text-amber-900 px-3 py-1 rounded-full text-xs font-bold border border-amber-200 self-start sm:self-auto shrink-0">
                 {Math.round((myClassCompletedCount / (myClassmates.length || 1)) * 100)}% השתתפות היום
               </div>
             </div>
 
             {/* List Table */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
               {myClassmates.map((student) => {
                 const isMe = student.id === currentStudent.id;
 
                 return (
                   <div
                     key={student.id}
-                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all flex items-center justify-between gap-2 ${
                       isMe
                         ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
                         : student.completedToday
@@ -220,9 +223,9 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                         : 'bg-amber-50/30 border-amber-100'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                       <div
-                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
+                        className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
                           student.completedToday
                             ? 'bg-emerald-600 text-white shadow-xs'
                             : 'bg-amber-200 text-amber-900'
@@ -235,25 +238,25 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                         )}
                       </div>
 
-                      <div>
+                      <div className="min-w-0 truncate">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-extrabold text-sm text-slate-900 font-['Heebo']">
+                          <span className="font-extrabold text-sm text-slate-900 font-['Heebo'] truncate">
                             {student.fullName}
                           </span>
                           {isMe && (
-                            <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.2 rounded-md font-bold">
+                            <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.2 rounded-md font-bold shrink-0">
                               את
                             </span>
                           )}
                         </div>
-                        <span className="text-xs text-slate-500 font-medium block">
+                        <span className="text-xs text-slate-500 font-medium block truncate">
                           {student.completedToday ? 'סיימה ללמוד היום ✨' : 'טרם השלימה להיום'}
                         </span>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="font-black text-base text-amber-950 font-['Heebo'] block">
+                    <div className="text-right shrink-0">
+                      <span className="font-black text-sm sm:text-base text-amber-950 font-['Heebo'] block">
                         {student.points} נק'
                       </span>
                     </div>
@@ -269,11 +272,11 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           TAB 2: CLASS LEAGUE ("תחרות הכיתות")
       ======================================= */}
       {activeSubTab === 'class-league' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Top Banner: Leading Class(es) */}
-          <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
+          <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
-              <Trophy className="w-4 h-4 text-yellow-200 animate-bounce" />
+              <Trophy className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
               <span>הכיתה המובילה באולפנה (מועמדת לפרס כיתתי)</span>
             </div>
 
@@ -290,7 +293,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                       className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20 flex items-center justify-between"
                     >
                       <div>
-                        <p className="font-extrabold text-xl text-white font-['Heebo']">
+                        <p className="font-extrabold text-lg sm:text-xl text-white font-['Heebo']">
                           כיתה {lc.className}
                         </p>
                         <p className="text-xs text-amber-100">
@@ -306,17 +309,17 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
               </div>
             ) : leaderboardData.leadingClasses.length === 1 ? (
               /* Single Leading Class */
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                  <h3 className="text-2xl sm:text-3xl font-black font-['Heebo'] text-white">
+                  <h3 className="text-xl sm:text-3xl font-black font-['Heebo'] text-white">
                     כיתה {leaderboardData.leadingClasses[0].className}
                   </h3>
-                  <p className="text-amber-100 text-sm font-semibold">
+                  <p className="text-amber-100 text-xs sm:text-sm font-semibold">
                     שכבת {leaderboardData.leadingClasses[0].grade}' •{' '}
                     {leaderboardData.leadingClasses[0].studentCount} תלמידות
                   </p>
                 </div>
-                <div className="bg-white text-amber-950 px-5 py-2.5 rounded-2xl shadow-md font-black text-xl font-['Heebo'] text-center">
+                <div className="w-full sm:w-auto bg-white text-amber-950 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl shadow-md font-black text-lg sm:text-xl font-['Heebo'] text-center">
                   {leaderboardData.leadingClasses[0].totalPoints} נקודות כיתתיות
                 </div>
               </div>
@@ -324,10 +327,10 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           </div>
 
           {/* Class League Table */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-amber-200/80 space-y-4">
+          <div className="bg-white rounded-3xl p-4 sm:p-6 shadow-sm border border-amber-200/80 space-y-4">
             <div className="border-b border-amber-100 pb-3">
-              <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
-                <Medal className="w-5 h-5 text-amber-600" />
+              <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                <Medal className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>טבלת הליגה הכללית של כל כיתות האולפנה</span>
               </h3>
             </div>
@@ -339,7 +342,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                 return (
                   <div
                     key={cls.className}
-                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all flex items-center justify-between gap-2.5 ${
                       cls.isLeading
                         ? 'bg-amber-100/90 border-amber-400 font-bold'
                         : isMyClass
@@ -347,9 +350,9 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                         : 'bg-white border-slate-100 hover:border-amber-200'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                       <span
-                        className={`w-8 h-8 rounded-xl font-black text-sm flex items-center justify-center ${
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center shrink-0 ${
                           idx === 0
                             ? 'bg-yellow-400 text-amber-950 shadow-xs'
                             : idx === 1
@@ -362,9 +365,9 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                         {idx + 1}
                       </span>
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-base text-slate-900 font-['Heebo']">
+                      <div className="min-w-0 truncate">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-sm sm:text-base text-slate-900 font-['Heebo']">
                             כיתה {cls.className}
                           </span>
                           {isMyClass && (
@@ -378,14 +381,14 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                             </span>
                           )}
                         </div>
-                        <span className="text-xs text-slate-500 font-medium">
+                        <span className="text-xs text-slate-500 font-medium block truncate">
                           {cls.studentCount} תלמידות • {cls.completedTodayCount} ענו היום
                         </span>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="font-black text-lg text-amber-950 font-['Heebo'] block">
+                    <div className="text-right shrink-0">
+                      <span className="font-black text-base sm:text-lg text-amber-950 font-['Heebo'] block">
                         {cls.totalPoints} נק'
                       </span>
                     </div>
@@ -401,11 +404,11 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           TAB 3: GRADE LEAGUE ("תחרות השכבות")
       ======================================= */}
       {activeSubTab === 'grade-league' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Top Banner: Leading Grade(s) */}
-          <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
+          <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
-              <GraduationCap className="w-4 h-4 text-yellow-200 animate-bounce" />
+              <GraduationCap className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
               <span>השכבה המובילה באולפנה (מועמדת לפרס שכבתי)</span>
             </div>
 
@@ -422,7 +425,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                       className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20 flex items-center justify-between"
                     >
                       <div>
-                        <p className="font-extrabold text-xl text-white font-['Heebo']">
+                        <p className="font-extrabold text-lg sm:text-xl text-white font-['Heebo']">
                           שכבת {lg.grade}'
                         </p>
                         <p className="text-xs text-amber-100">
@@ -438,16 +441,16 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
               </div>
             ) : leaderboardData.leadingGrades.length === 1 ? (
               /* Single Leading Grade */
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                  <h3 className="text-2xl sm:text-3xl font-black font-['Heebo'] text-white">
+                  <h3 className="text-xl sm:text-3xl font-black font-['Heebo'] text-white">
                     שכבת {leaderboardData.leadingGrades[0].grade}'
                   </h3>
-                  <p className="text-amber-100 text-sm font-semibold">
+                  <p className="text-amber-100 text-xs sm:text-sm font-semibold">
                     {leaderboardData.leadingGrades[0].studentCount} תלמידות
                   </p>
                 </div>
-                <div className="bg-white text-amber-950 px-5 py-2.5 rounded-2xl shadow-md font-black text-xl font-['Heebo'] text-center">
+                <div className="w-full sm:w-auto bg-white text-amber-950 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl shadow-md font-black text-lg sm:text-xl font-['Heebo'] text-center">
                   {leaderboardData.leadingGrades[0].totalPoints} נקודות שכבתיות
                 </div>
               </div>
@@ -455,15 +458,15 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           </div>
 
           {/* Grade Meters & Comparative Graph */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-amber-200/80 space-y-6">
+          <div className="bg-white rounded-3xl p-4 sm:p-8 shadow-sm border border-amber-200/80 space-y-4 sm:space-y-6">
             <div className="border-b border-amber-100 pb-3">
-              <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-amber-600" />
+              <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>מדד השוואתי בין 4 השכבות (ט', י', יא', יב')</span>
               </h3>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {leaderboardData.gradeLeague.map((gItem) => {
                 const maxPointsInLeague = Math.max(
                   ...leaderboardData.gradeLeague.map((g) => g.totalPoints),
