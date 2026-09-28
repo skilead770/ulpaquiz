@@ -187,16 +187,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 />
               )}
 
-              {/* Dropdown Menu for switching user / viewing student options */}
+              {/* Dropdown Menu for viewing student options and disconnecting */}
               {showUserDropdown && (
                 <div className="fixed sm:absolute left-2 right-2 sm:right-auto sm:left-0 top-16 sm:top-auto sm:mt-2 w-auto sm:w-72 max-w-[calc(100vw-1rem)] bg-white rounded-2xl shadow-2xl border border-amber-200/80 py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                  <div className="px-3 py-2 border-b border-amber-100 flex items-center justify-between">
+                  <div className="px-4 py-3 border-b border-amber-100 flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">
-                        החלף משתמש לבדיקה (דמו):
+                      <p className="text-xs font-extrabold text-amber-900">
+                        {isAdmin ? 'מנהל מערכת' : currentStudent?.fullName}
                       </p>
-                      <p className="text-[11px] text-slate-800">
-                        בחר תלמידה לבחינת חוויית המשתמשת:
+                      <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                        {isAdmin ? SUPER_ADMIN_EMAIL : `כיתה ${currentStudent?.className} (שכבה ${currentStudent?.grade}')`}
                       </p>
                     </div>
                     <button
@@ -207,70 +207,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   </div>
 
-                  <div className="max-h-56 sm:max-h-60 overflow-y-auto py-1">
-                    {students.map((student) => {
-                      const isSelected = student.id === currentStudentId;
-                      const isPending = student.status === 'pending';
-                      return (
-                        <button
-                          key={student.id}
-                          onClick={() => {
-                            onSelectUser(student.id);
-                            setShowUserDropdown(false);
-                          }}
-                          className={`w-full text-right px-3 py-2 text-xs flex items-center justify-between hover:bg-amber-50 transition-colors ${
-                            isSelected ? 'bg-amber-100/80 font-bold text-amber-950' : 'text-slate-800'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <User className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            <div className="truncate">
-                              <span className="font-semibold block truncate">{student.fullName}</span>
-                              <span className="text-amber-800 text-[10px] block">
-                                כיתה {student.className} (שכבה {student.grade}')
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {isPending ? (
-                              <span className="bg-amber-200 text-amber-900 text-[9px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5">
-                                <Clock className="w-2.5 h-2.5" />
-                                ממתינה
-                              </span>
-                            ) : (
-                              <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                                {student.points} נק'
-                              </span>
-                            )}
-                            {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-600" />}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="border-t border-amber-100 pt-1 mt-1 px-1 space-y-1">
-                    <button
-                      onClick={() => {
-                        onChangeTab('register');
-                        setShowUserDropdown(false);
-                      }}
-                      className="w-full text-right px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2">
-                        <UserPlus className="w-4 h-4 text-amber-600" />
-                        <span>אין לך משתמש? לחצי להרשמה</span>
-                      </div>
-                      <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">חדש</span>
-                    </button>
-
+                  <div className="p-1 space-y-1">
                     {isAdmin && (
                       <button
                         onClick={() => {
-                          onSelectUser('admin');
+                          onChangeTab('admin');
                           setShowUserDropdown(false);
                         }}
-                        className="w-full text-right px-3 py-2 text-xs flex items-center justify-between bg-amber-200/80 font-bold text-amber-950 rounded-xl transition-colors"
+                        className="w-full text-right px-3 py-2 text-xs flex items-center justify-between bg-amber-50 hover:bg-amber-100 font-bold text-amber-950 rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           <ShieldCheck className="w-4 h-4 text-amber-700" />
@@ -289,18 +233,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                         className="w-full text-right px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors flex items-center gap-2"
                       >
                         <LogOut className="w-4 h-4 text-slate-500" />
-                        <span>החלפת משתמש / התנתקות</span>
+                        <span>התנתקות מהמערכת</span>
                       </button>
                     )}
-
-                    <button
-                      onClick={handleReset}
-                      disabled={isResetting}
-                      className="w-full text-right px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center gap-2 mt-1 font-semibold"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
-                      <span>איפוס נתוני דמו (מחק חידונים והחזר ניקוד)</span>
-                    </button>
                   </div>
                 </div>
               )}

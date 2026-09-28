@@ -36,7 +36,7 @@ import {
   DEFAULT_CLASSES,
   inferGradeFromClass,
 } from '../types';
-import { SUPER_ADMIN_EMAIL } from '../lib/config';
+import { SUPER_ADMIN_EMAIL, API_BASE_URL } from '../lib/config';
 import { ExcelUploader } from './ExcelUploader';
 import {
   bulkImportStudentsApi,
@@ -332,21 +332,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [managers, setManagers] = useState<Manager[]>([]);
   const [newManagerEmail, setNewManagerEmail] = useState('');
   const [newManagerName, setNewManagerName] = useState('');
-  const [selectedManagerStudentId, setSelectedManagerStudentId] = useState('');
   const [isAddingManager, setIsAddingManager] = useState(false);
   const [managerMsg, setManagerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isStartingManagerQuiz, setIsStartingManagerQuiz] = useState(false);
   const [managerQuizError, setManagerQuizError] = useState<string | null>(null);
-
-  const promotableStudents = students
-    .filter((student) =>
-      student.status !== 'pending' &&
-      student.status !== 'rejected' &&
-      !student.managerParticipation &&
-      Boolean(student.email?.match(/@(?:gmail|googlemail)\.com$/i)) &&
-      !managers.some((manager) => manager.email.toLowerCase() === student.email?.toLowerCase())
-    )
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'));
 
   React.useEffect(() => {
     fetchManagersApi().then((list) => setManagers(list));
@@ -365,24 +354,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setManagerMsg({ type: 'success', text: 'מנהל/ת חדש/ה נוסף/ה בהצלחה למערכת!' });
     } catch (err: any) {
       setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהוספת מנהל' });
-    } finally {
-      setIsAddingManager(false);
-    }
-  };
-
-  const handlePromoteExistingStudent = async () => {
-    const student = promotableStudents.find((candidate) => candidate.id === selectedManagerStudentId);
-    if (!student?.email) return;
-
-    setIsAddingManager(true);
-    setManagerMsg(null);
-    try {
-      const res = await addManagerApi(student.email, student.fullName);
-      setManagers(res.managers);
-      setSelectedManagerStudentId('');
-      setManagerMsg({ type: 'success', text: `${student.fullName} נוספה כמנהלת מערכת.` });
-    } catch (err: any) {
-      setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהוספת מנהלת' });
     } finally {
       setIsAddingManager(false);
     }
@@ -567,6 +538,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [aiHebrewDate, setAiHebrewDate] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMsg, setAiMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // AI Questions from Content State
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [questionsAiError, setQuestionsAiError] = useState<string | null>(null);
 
   // Google Doc / Text Import for Jewish Year תשפ"ז Halachot
   const [docUrlInput, setDocUrlInput] = useState('https://docs.google.com/document/d/1bCtPEwggxRD_R8aOnlCe5HBGEDu09jCgSfZUnPVuazs/edit?usp=drive_link');
@@ -862,6 +837,66 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       });
     } finally {
       setIsGeneratingAi(false);
+    }
+  };
+
+  const handleGenerateQuestionsFromContent = async (sourceType: 'manual' | 'hebrew-date' = 'manual') => {
+    const targetHalacha = sourceType === 'hebrew-date' ? (editingHebrewDateQuiz || selectedHalacha) : editingHalacha;
+    if (!targetHalacha || !targetHalacha.content || !targetHalacha.content.trim()) return;
+    setIsGeneratingQuestions(true);
+    setQuestionsAiError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL || ''}/api/generate-questions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: targetHalacha.content }),
+      });
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        if (text.trim().startsWith('<')) {
+          throw new Error('השרת החזיר דף HTML במקום נתונים (שגיאת ניתוב או שרת כבוי). ודאי ששרת ה-Backend שלך פועל (למשל בפורט 5000/render) ושהגדרת את API_BASE_URL בצורה תקינה.');
+        }
+        throw new Error(text || 'התגובה שהתקבלה מהשרת אינה בפורמט JSON תקין');
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'שגיאה בתקשורת עם השרת ליצירת השאלות');
+      }
+
+      const data = await response.json();
+      if (data.questions && data.questions.length === 4) {
+        const mappedQuestions = data.questions.map((q: any, idx: number) => ({
+          id: q.id || `q${idx + 1}`,
+          text: q.text,
+          options: q.options,
+          correctOptionIndex: Number(q.correctOptionIndex) ?? 0,
+          explanation: q.explanation || '',
+        }));
+
+        if (sourceType === 'hebrew-date') {
+          setEditingHebrewDateQuiz({
+            ...(editingHebrewDateQuiz || selectedHalacha),
+            questions: mappedQuestions,
+          });
+        } else {
+          setEditingHalacha({
+            ...targetHalacha,
+            questions: mappedQuestions,
+          });
+        }
+      } else {
+        throw new Error('השרת לא החזיר פורמט שאלות תקין (נדרשות בדיוק 4 שאלות)');
+      }
+    } catch (err: any) {
+      console.error('AI questions generation failed:', err);
+      setQuestionsAiError(err.message || 'אירעה שגיאה ביצירת השאלות ב-AI. ודאי שהשרת פועל ומחובר ל-Gemini.');
+    } finally {
+      setIsGeneratingQuestions(false);
     }
   };
 
@@ -1178,23 +1213,68 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                   <h5 className="text-sm font-black text-slate-800">שאלות החידון</h5>
                   {editingHebrewDateQuiz?.id !== selectedHalacha.id && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHebrewDateQuizError(null);
-                        setEditingHebrewDateQuiz(cloneHalachaForEditing(selectedHalacha));
-                      }}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                      עריכת שאלות ותשובות
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHebrewDateQuizError(null);
+                          setEditingHebrewDateQuiz(cloneHalachaForEditing(selectedHalacha));
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100 cursor-pointer transition-all"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                        עריכה ידנית
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isGeneratingQuestions || !selectedHalacha.content || !selectedHalacha.content.trim()}
+                        onClick={() => handleGenerateQuestionsFromContent('hebrew-date')}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-black text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 px-3.5 py-2 disabled:opacity-50 cursor-pointer shadow-xs transition-all"
+                      >
+                        {isGeneratingQuestions ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
+                        )}
+                        <span>{isGeneratingQuestions ? 'מייצר שאלות...' : 'חולל שאלות ב-AI ✨'}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
+
+                {questionsAiError && editingHebrewDateQuiz?.id !== selectedHalacha.id && (
+                  <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 mb-4">
+                    {questionsAiError}
+                  </p>
+                )}
 
                 {editingHebrewDateQuiz?.id === selectedHalacha.id ? (
                   <div className="space-y-4">
                     <p className="text-xs text-slate-600">עדכני את נוסח השאלות והאפשרויות, וסמני בעיגול את התשובה הנכונה.</p>
+
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-1 bg-amber-50/50 p-3 rounded-2xl border border-amber-200">
+                      <span className="text-[11px] text-amber-900 font-medium">
+                        ניתן לחולל אוטומטית 4 שאלות חכמות מתוכן ההלכה המוצג באמצעות ה-AI.
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isGeneratingQuestions || !editingHebrewDateQuiz.content.trim()}
+                        onClick={() => handleGenerateQuestionsFromContent('hebrew-date')}
+                        className="px-4 py-2 rounded-xl text-xs font-black text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all shrink-0 self-end sm:self-auto"
+                      >
+                        {isGeneratingQuestions ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
+                        )}
+                        <span>{isGeneratingQuestions ? 'מייצר שאלות...' : 'חולל שאלות מהתוכן ✨'}</span>
+                      </button>
+                    </div>
+                    {questionsAiError && (
+                      <p className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 mt-2">
+                        {questionsAiError}
+                      </p>
+                    )}
                     {editingHebrewDateQuiz.questions.map((question, questionIndex) => (
                       <fieldset key={question.id} className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
                         <legend className="px-1 text-xs font-black text-amber-950">שאלה {questionIndex + 1}</legend>
@@ -1709,6 +1789,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="w-full p-3 rounded-xl border border-slate-300 text-sm leading-relaxed"
                     />
                   </div>
+
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-1 bg-amber-50/50 p-3 rounded-2xl border border-amber-200">
+                    <span className="text-[11px] text-amber-900 font-medium">
+                      ניתן להזין או לערוך את תוכן ההלכה למעלה, ואז לחולל אוטומטית 4 שאלות חכמות מהתוכן באמצעות ה-AI.
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isGeneratingQuestions || !editingHalacha.content.trim()}
+                      onClick={() => handleGenerateQuestionsFromContent('manual')}
+                      className="px-4 py-2 rounded-xl text-xs font-black text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all shrink-0 self-end sm:self-auto"
+                    >
+                      {isGeneratingQuestions ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
+                      )}
+                      <span>{isGeneratingQuestions ? 'מייצר שאלות...' : 'חולל שאלות מהתוכן ✨'}</span>
+                    </button>
+                  </div>
+                  {questionsAiError && (
+                    <p className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 mt-2">
+                      {questionsAiError}
+                    </p>
+                  )}
 
                   {/* Questions Edit Block */}
                   <div className="pt-4 border-t border-amber-100 space-y-4">
@@ -2597,39 +2701,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
             </form>
-
-            <div className="border-t border-slate-100 pt-4 space-y-3">
-              <div>
-                <h4 className="text-xs font-extrabold text-slate-800">הוספה מתוך משתמשות מאושרות</h4>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  בחירת משתמשת קיימת תעניק לכתובת ה-Gmail שלה הרשאות מנהלת.
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={selectedManagerStudentId}
-                  onChange={(event) => setSelectedManagerStudentId(event.target.value)}
-                  disabled={isAddingManager || promotableStudents.length === 0}
-                  className="min-w-0 flex-1 p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden disabled:opacity-60"
-                >
-                  <option value="">{promotableStudents.length ? 'בחרי משתמשת מאושרת' : 'אין משתמשות מאושרות זמינות'}</option>
-                  {promotableStudents.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.fullName} - {student.className} ({student.email})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handlePromoteExistingStudent}
-                  disabled={isAddingManager || !selectedManagerStudentId}
-                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <UserCheck className="w-4 h-4" />
-                  <span>{isAddingManager ? 'מוסיף מנהלת...' : 'הוסף כמנהלת'}</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Current Managers List */}
