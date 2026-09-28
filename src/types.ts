@@ -62,6 +62,7 @@ export interface Student {
   status?: 'approved' | 'pending' | 'rejected';
   registeredAt?: string;
   invitationCode?: string;
+  managerParticipation?: boolean;
 }
 
 export interface Invitation {

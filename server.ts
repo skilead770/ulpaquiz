@@ -417,7 +417,7 @@ async function startServer() {
 
   // Get all students
   app.get('/api/students', (req, res) => {
-    res.json(db.students);
+    res.json(db.students.filter((student) => !student.managerParticipation));
   });
 
   // Get single student
@@ -992,7 +992,9 @@ async function startServer() {
       submissions: {},
       status: 'pending', // Strict requirement: Pending admin approval!
       registeredAt: new Date().toISOString(),
-      invitationCode: invitationCode ? invitationCode.trim().toUpperCase() : undefined,
+      ...(invitationCode?.trim()
+        ? { invitationCode: invitationCode.trim().toUpperCase() }
+        : {}),
     };
 
     db.students.push(newStudent);
@@ -1341,7 +1343,8 @@ async function startServer() {
     const today = (req.query.date as string) || '2026-07-31';
 
     // 1. Student Leaderboard
-    const studentItems: StudentLeaderboardItem[] = db.students.map((s) => ({
+    const leaderboardStudents = db.students.filter((student) => !student.managerParticipation);
+    const studentItems: StudentLeaderboardItem[] = leaderboardStudents.map((s) => ({
       id: s.id,
       fullName: s.fullName,
       className: s.className,
@@ -1359,7 +1362,7 @@ async function startServer() {
     // 2. Class League
     const classMap: Record<string, { grade: GradeType; totalPoints: number; count: number; completedToday: number }> = {};
 
-    db.students.forEach((s) => {
+    leaderboardStudents.forEach((s) => {
       if (!classMap[s.className]) {
         classMap[s.className] = {
           grade: s.grade,
@@ -1397,7 +1400,7 @@ async function startServer() {
       'יב': { totalPoints: 0, count: 0, completedToday: 0 },
     };
 
-    db.students.forEach((s) => {
+    leaderboardStudents.forEach((s) => {
       if (gradeMap[s.grade]) {
         gradeMap[s.grade].totalPoints += s.points;
         gradeMap[s.grade].count += 1;
@@ -1434,7 +1437,7 @@ async function startServer() {
 
   // Prize Report API
   app.get('/api/prizes', (req, res) => {
-    const reports: PrizeReportItem[] = db.students.map((student) => {
+    const reports: PrizeReportItem[] = db.students.filter((student) => !student.managerParticipation).map((student) => {
       const qualifyingMilestones = DEFAULT_PRIZE_MILESTONES.filter((m) => student.points >= m.points);
       const nextMilestone = DEFAULT_PRIZE_MILESTONES.find((m) => student.points < m.points) || null;
       const pointsNeeded = nextMilestone ? nextMilestone.points - student.points : 0;

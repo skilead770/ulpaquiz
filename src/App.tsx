@@ -7,6 +7,7 @@ import {
   fetchPrizesApi,
   resetDemoApi,
   setAuthToken,
+  getOrCreateManagerParticipant,
 } from './lib/api';
 import { signOutSSO } from './lib/authService';
 import { Navbar } from './components/Navbar';
@@ -35,6 +36,7 @@ export default function App() {
 
   // Modals state
   const [showQuizModal, setShowQuizModal] = useState(false);
+  const [managerParticipant, setManagerParticipant] = useState<Student | null>(null);
   const [activeMilestoneAlert, setActiveMilestoneAlert] = useState<PrizeMilestone | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -110,6 +112,7 @@ export default function App() {
 
   const handleLogout = async () => {
     setCurrentStudentId(null);
+    setManagerParticipant(null);
     localStorage.removeItem('halacha_current_user');
     setAuthToken(null);
     try {
@@ -123,9 +126,33 @@ export default function App() {
     updatedStudent: Student,
     milestones: PrizeMilestone[]
   ) => {
+    if (updatedStudent.managerParticipation) {
+      setManagerParticipant(updatedStudent);
+    }
     await loadData();
     if (milestones && milestones.length > 0) {
       setActiveMilestoneAlert(milestones[0]);
+    }
+  };
+
+  const handleManagerQuiz = async () => {
+    const todaysHalacha = halachot.find((halacha) => halacha.date === todayDate);
+    if (!todaysHalacha || todaysHalacha.quizEnabled === false) {
+      alert('אין חידון זמין להיום');
+      return;
+    }
+
+    try {
+      const participant = await getOrCreateManagerParticipant();
+      if (participant.completedDates.includes(todayDate)) {
+        alert('כבר השתתפת בחידון היומי');
+        return;
+      }
+      setSelectedDate(todayDate);
+      setManagerParticipant(participant);
+      setShowQuizModal(true);
+    } catch (error: any) {
+      alert(error?.message || 'לא ניתן לפתוח את החידון');
     }
   };
 
@@ -212,6 +239,7 @@ export default function App() {
             halachot={halachot}
             prizeReports={prizeReports}
             onRefreshData={loadData}
+            onManagerQuiz={handleManagerQuiz}
           />
         )}
       </main>
@@ -224,9 +252,9 @@ export default function App() {
       </footer>
 
       {/* Quiz Modal */}
-      {showQuizModal && currentStudent && selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false && (
+      {showQuizModal && (currentStudent || managerParticipant) && selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false && (
         <QuizModal
-          student={currentStudent}
+          student={currentStudent || managerParticipant!}
           halacha={selectedHalacha}
           onClose={() => setShowQuizModal(false)}
           onQuizSubmitted={handleQuizSubmitted}

@@ -8,6 +8,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  runTransaction,
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
 import { getTodayInJerusalem } from './quizSchedule';
@@ -122,7 +123,7 @@ export async function fetchStudents(): Promise<Student[]> {
     if (!snap.empty) {
       const list: Student[] = [];
       snap.forEach((d) => list.push(d.data() as Student));
-      return list;
+      return list.filter((student) => !student.managerParticipation);
     }
   } catch (e) {
     console.info('[Firestore] Direct student read failed, falling back to API:', e);
@@ -131,12 +132,61 @@ export async function fetchStudents(): Promise<Student[]> {
   try {
     const res = await fetch(API_BASE_URL + '/api/students');
     if (res.ok) {
-      return await parseJsonResponse(res);
+      const students = await parseJsonResponse(res) as Student[];
+      return students.filter((student) => !student.managerParticipation);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for fetchStudents');
   }
   return getOrSeedFirestoreStudents();
+}
+
+export async function getOrCreateManagerParticipant(): Promise<Student> {
+  const firebaseUser = auth.currentUser;
+  const email = firebaseUser?.email?.trim().toLowerCase();
+  if (!firebaseUser?.emailVerified || !email) {
+    throw new Error('יש להתחבר באמצעות חשבון Google מאומת כדי להשתתף בחידון');
+  }
+
+  const managerQuery = query(collection(db, 'managers'), where('email', '==', email));
+  const managerSnapshot = await getDocs(managerQuery);
+  if (managerSnapshot.empty) {
+    throw new Error('ההשתתפות בחידון זמינה למנהלות בלבד');
+  }
+  const manager = managerSnapshot.docs[0].data() as Manager;
+  let hash = 2166136261;
+  for (let index = 0; index < email.length; index += 1) {
+    hash = Math.imul(hash ^ email.charCodeAt(index), 16777619);
+  }
+  const participantId = `manager_${(hash >>> 0).toString(16)}`;
+  const participantRef = doc(db, 'students', participantId);
+
+  return runTransaction(db, async (transaction) => {
+    const participantSnapshot = await transaction.get(participantRef);
+    if (participantSnapshot.exists()) {
+      const participant = participantSnapshot.data() as Student;
+      if (!participant.managerParticipation || participant.email !== email) {
+        throw new Error('לא ניתן לאמת את פרופיל ההשתתפות של המנהלת');
+      }
+      return participant;
+    }
+
+    const participant: Student = {
+      id: participantId,
+      fullName: manager.name || firebaseUser.displayName || email.split('@')[0],
+      className: 'צוות מנהלות',
+      grade: 'יב',
+      username: participantId,
+      email,
+      points: 0,
+      completedDates: [],
+      submissions: {},
+      status: 'approved',
+      managerParticipation: true,
+    };
+    transaction.set(participantRef, participant);
+    return participant;
+  });
 }
 
 export async function fetchHalachot(): Promise<DailyHalacha[]> {
@@ -405,7 +455,7 @@ export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData
 
   const students = await getOrSeedFirestoreStudents();
   const activeStudents = students.filter(
-    (s) => s.status !== 'pending' && s.status !== 'rejected'
+    (s) => !s.managerParticipation && s.status !== 'pending' && s.status !== 'rejected'
   );
 
   // 1. Top students
@@ -521,7 +571,9 @@ export async function fetchPrizesApi(): Promise<{
   }
 
   const students = await getOrSeedFirestoreStudents();
-  const activeStudents = students.filter((s) => s.status !== 'pending' && s.status !== 'rejected');
+  const activeStudents = students.filter(
+    (s) => !s.managerParticipation && s.status !== 'pending' && s.status !== 'rejected'
+  );
 
   const reports: PrizeReportItem[] = activeStudents.map((student) => {
     const qualifyingMilestones = DEFAULT_PRIZE_MILESTONES.filter(
@@ -1155,7 +1207,9 @@ export async function registerStudentApi(studentData: {
       submissions: {},
       status: 'pending',
       registeredAt: new Date().toISOString(),
-      invitationCode: studentData.invitationCode ? studentData.invitationCode.trim().toUpperCase() : undefined,
+      ...(studentData.invitationCode?.trim()
+        ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
+        : {}),
     };
 
     await setDoc(doc(db, 'students', newStudent.id), newStudent);
@@ -1251,7 +1305,9 @@ export async function registerStudentApi(studentData: {
     submissions: {},
     status: 'pending',
     registeredAt: new Date().toISOString(),
-    invitationCode: studentData.invitationCode ? studentData.invitationCode.trim().toUpperCase() : undefined,
+    ...(studentData.invitationCode?.trim()
+      ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
+      : {}),
   };
 
   await setDoc(doc(db, 'students', newStudent.id), newStudent);

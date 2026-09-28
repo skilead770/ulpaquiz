@@ -18,6 +18,7 @@ import {
   Save,
   Wand2,
   AlertCircle,
+  ClipboardCheck,
   UserPlus,
   UserCheck,
   Clock,
@@ -65,6 +66,7 @@ interface AdminPanelProps {
   halachot: DailyHalacha[];
   prizeReports: PrizeReportItem[];
   onRefreshData: () => void;
+  onManagerQuiz: () => void;
 }
 
 const hebrewWeekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -175,6 +177,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   halachot,
   prizeReports,
   onRefreshData,
+  onManagerQuiz,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
     'halachot' | 'hebrew-date' | 'students' | 'prizes' | 'managers' | 'classes'
@@ -897,6 +900,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              onClick={onManagerQuiz}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white border border-emerald-400/40 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <ClipboardCheck className="w-3.5 h-3.5" />
+              <span>השתתפות בחידון היומי</span>
+            </button>
             <button
               onClick={handleManualRefresh}
               disabled={isRefreshing}
