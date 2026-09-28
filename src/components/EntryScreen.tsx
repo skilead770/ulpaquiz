@@ -20,7 +20,7 @@ import {
 import { Student, DEFAULT_CLASSES } from '../types';
 import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
-import { signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
+import { resolveFirebaseUserSession, signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 
@@ -109,11 +109,11 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       const idToken = await firebaseUser.getIdToken();
       const userEmail = (firebaseUser.email || '').trim().toLowerCase();
 
-      // Verify token with backend server
-      const verifyRes = await verifyBackendToken(idToken);
+      // First migration chunk: prefer direct Firestore-based app auth resolution.
+      const resolved = await resolveFirebaseUserSession(firebaseUser);
 
-      if (verifyRes.role === 'admin') {
-        setSuccessMsg(`שלום ${verifyRes.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
+      if (resolved.role === 'admin') {
+        setSuccessMsg(`שלום ${resolved.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
         setTimeout(() => {
           onLoginSuccess('admin', idToken);
         }, 600);
@@ -125,35 +125,68 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
         return;
       }
 
-      if (verifyRes.role === 'student' && verifyRes.student) {
-        setSuccessMsg(`שלום ${verifyRes.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
+      if (resolved.role === 'student' && resolved.student) {
+        setSuccessMsg(`שלום ${resolved.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
         setTimeout(() => {
-          onLoginSuccess(verifyRes.student!, idToken);
+          onLoginSuccess(resolved.student!, idToken);
         }, 500);
         return;
       }
 
-      if (verifyRes.role === 'pending' || (verifyRes.student && verifyRes.student.status === 'pending')) {
+      if (resolved.role === 'pending' || (resolved.student && resolved.student.status === 'pending')) {
         setPendingStudent({
-          fullName: verifyRes.name || verifyRes.student?.fullName || '',
+          fullName: resolved.name || resolved.student?.fullName || '',
           email: userEmail,
         });
         setMode('pending');
         return;
       }
 
-      if (verifyRes.role === 'unauthorized') {
+      if (resolved.role === 'rejected') {
+        setError('בקשת ההרשמה של חשבון זה נדחתה. נא לפנות להנהלת האולפנה.');
+        return;
+      }
+
+      if (resolved.role === 'unauthorized') {
         // Not registered yet! Pre-fill registration form
         setGmail(userEmail);
         if (firebaseUser.displayName) {
           setFullName(firebaseUser.displayName);
         }
         setMode('register');
-        setError(`החשבון ${userEmail} אינו רשום עדיין. מלאי את פרטייך והירשמי למבצע.`);
+        setError(resolved.message || `החשבון ${userEmail} אינו רשום עדיין. מלאי את פרטייך והירשמי למבצע.`);
         return;
       }
 
-      throw new Error(verifyRes.error || 'אימות Google נכשל');
+      // Fallback only if direct Firebase resolution fails unexpectedly.
+      try {
+        const verifyRes = await verifyBackendToken(idToken);
+        if (verifyRes.role === 'admin') {
+          setSuccessMsg(`שלום ${verifyRes.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
+          setTimeout(() => {
+            onLoginSuccess('admin', idToken);
+          }, 600);
+          return;
+        }
+        if (verifyRes.role === 'student' && verifyRes.student) {
+          setSuccessMsg(`שלום ${verifyRes.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
+          setTimeout(() => {
+            onLoginSuccess(verifyRes.student!, idToken);
+          }, 500);
+          return;
+        }
+        if (verifyRes.role === 'pending') {
+          setPendingStudent({
+            fullName: verifyRes.name || verifyRes.student?.fullName || '',
+            email: userEmail,
+          });
+          setMode('pending');
+          return;
+        }
+        setError(verifyRes.error || 'אימות Google נכשל');
+      } catch (fallbackErr: any) {
+        throw new Error(fallbackErr?.message || resolved.message || 'אימות Google נכשל');
+      }
     } catch (err: any) {
       console.error('[Google SSO Error]', err);
       if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed')) {

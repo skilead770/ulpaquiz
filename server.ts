@@ -6,6 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import mammoth from 'mammoth';
 import { firestoreDb, authAdmin } from './src/lib/firebaseAdmin';
+import { getTodayInJerusalem } from './src/lib/quizSchedule';
 import {
   Student,
   DailyHalacha,
@@ -332,9 +333,10 @@ async function startServer() {
   // -------------------------------------------------------------
   // Token Verification Helper & Security Middlewares
   // -------------------------------------------------------------
-  async function verifyGoogleToken(token: string): Promise<{ email: string; name?: string; picture?: string } | null> {
+  async function verifyGoogleToken(token: string): Promise<{ email: string; emailVerified: boolean; name?: string; picture?: string } | null> {
     if (!token) return null;
     let email: string | undefined;
+    let emailVerified = false;
     let name: string | undefined;
     let picture: string | undefined;
 
@@ -343,6 +345,7 @@ async function startServer() {
       try {
         const decoded = await authAdmin.verifyIdToken(token);
         email = decoded.email;
+        emailVerified = decoded.email_verified === true;
         name = decoded.name;
         picture = decoded.picture;
       } catch (err: any) {
@@ -357,6 +360,7 @@ async function startServer() {
         if (googleRes.ok) {
           const data = await googleRes.json();
           email = data.email;
+          emailVerified = data.email_verified === true || data.email_verified === 'true';
           name = data.name;
           picture = data.picture;
         }
@@ -366,13 +370,13 @@ async function startServer() {
     }
 
     if (!email) return null;
-    return { email: email.trim().toLowerCase(), name, picture };
+    return { email: email.trim().toLowerCase(), emailVerified, name, picture };
   }
 
   // Middleware: Require Admin Authentication via Google SSO or approved manager token
   const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
-    const token = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : null) || (req.query.token as string);
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
     if (!token) {
       return res.status(401).json({
@@ -381,13 +385,8 @@ async function startServer() {
       });
     }
 
-    // Direct developer/emergency token check
-    if (token === 'admin_secret_token') {
-      return next();
-    }
-
     const verified = await verifyGoogleToken(token);
-    if (!verified || !verified.email) {
+    if (!verified || !verified.email || !verified.emailVerified) {
       return res.status(401).json({
         error: 'אימות זהות מנהל Google נכשל או שפג תוקף הטוקן. אנא התחבר מחדש.',
         code: 'INVALID_TOKEN',
@@ -1127,17 +1126,32 @@ async function startServer() {
         questions: h.questions || [],
       };
 
-      const existingIdx = db.halachot.findIndex(
-        (existing) => existing.date === cleanH.date || (existing.hebrewDate && existing.hebrewDate === cleanH.hebrewDate)
+      const sameHebrewDate = cleanH.hebrewDate
+        ? db.halachot.filter((existing) => existing.hebrewDate === cleanH.hebrewDate)
+        : [];
+      const existing = sameHebrewDate[0] || db.halachot.find(
+        (item) => item.date === cleanH.date && !item.hebrewDate
       );
+      const duplicateIds = Array.from(new Set(
+        sameHebrewDate.slice(1).map((item) => item.id).filter((id) => id !== existing?.id)
+      ));
 
-      if (existingIdx >= 0) {
-        db.halachot[existingIdx] = { ...db.halachot[existingIdx], ...cleanH };
+      if (existing) cleanH.id = existing.id;
+
+      if (existing) {
+        const existingIdx = db.halachot.findIndex((item) => item.id === existing.id);
+        db.halachot[existingIdx] = { ...existing, ...cleanH };
         updatedCount++;
       } else {
         db.halachot.push(cleanH);
         addedCount++;
       }
+
+      if (duplicateIds.length > 0) {
+        db.halachot = db.halachot.filter((item) => !duplicateIds.includes(item.id));
+        await Promise.all(duplicateIds.map((id) => deleteHalachaFromFirestore(id)));
+      }
+
       await saveHalachaToFirestore(cleanH);
     }
 
@@ -1222,15 +1236,30 @@ async function startServer() {
     if (!studentId || !date || !answers) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
+    if (date !== getTodayInJerusalem()) {
+      return res.status(400).json({ error: 'ניתן להיבחן רק בחידון של היום' });
+    }
 
     const student = db.students.find((s) => s.id === studentId);
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
+    if (student.status !== 'approved') {
+      return res.status(403).json({ error: 'רק תלמידה שאושרה יכולה להיבחן' });
+    }
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const verified = await verifyGoogleToken(token);
+    if (!verified || !verified.emailVerified || verified.email !== student.email?.trim().toLowerCase()) {
+      return res.status(403).json({ error: 'נדרשת התחברות Google מאומתת לחשבון התלמידה' });
+    }
 
     const halacha = db.halachot.find((h) => h.date === date);
     if (!halacha) {
       return res.status(404).json({ error: 'Halacha not found for this date' });
+    }
+    if (halacha.quizEnabled === false) {
+      return res.status(403).json({ error: 'המנהלת השביתה את החידון לתאריך זה' });
     }
 
     // Check if already completed today
@@ -1268,6 +1297,7 @@ async function startServer() {
 
     const submission: QuizSubmission = {
       date,
+      halachaId: halacha.id,
       score: correctCount,
       earnedPoints,
       submittedAt: submissionTime,

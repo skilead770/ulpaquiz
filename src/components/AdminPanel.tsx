@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { HDate, calendar, getHolidaysOnDate, months } from '@hebcal/core';
 import {
   FileSpreadsheet,
   BookOpen,
@@ -30,7 +31,6 @@ import {
   PrizeReportItem,
   Question,
   GradeType,
-  Invitation,
   Manager,
   DEFAULT_CLASSES,
   inferGradeFromClass,
@@ -48,9 +48,6 @@ import {
   deleteStudentApi,
   approveStudentApi,
   rejectStudentApi,
-  fetchInvitationsApi,
-  createInvitationApi,
-  deleteInvitationApi,
   fetchManagersApi,
   addManagerApi,
   deleteManagerApi,
@@ -58,15 +55,119 @@ import {
   addClassApi,
   deleteClassApi,
 } from '../lib/api';
-import { Key, Share2, Copy, Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
-import { getCachedGoogleAccessToken, signInWithGoogleSSO } from '../lib/authService';
+import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
+import { signInWithGoogleSSO } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
+import { getTodayInJerusalem } from '../lib/quizSchedule';
 
 interface AdminPanelProps {
   students: Student[];
   halachot: DailyHalacha[];
   prizeReports: PrizeReportItem[];
   onRefreshData: () => void;
+}
+
+const hebrewWeekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const halachaHebrewYear = 5787;
+const halachaHebrewYearText = 'תשפ״ז';
+const hebcalEventsByYear = new Map<number, ReturnType<typeof calendar>>();
+
+function stripHebrewVowels(value: string) {
+  return value.replace(/[\u0591-\u05C7]/g, '').trim();
+}
+
+function hebrewDayNumber(day: number) {
+  const units = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+  if (day === 15) return 'טו';
+  if (day === 16) return 'טז';
+  if (day < 10) return units[day];
+  if (day < 20) return `י${units[day - 10]}`;
+  if (day === 30) return 'ל';
+  return `כ${units[day - 20]}`;
+}
+
+function getHebcalEventsForYear(year: number) {
+  let events = hebcalEventsByYear.get(year);
+  if (!events) {
+    events = calendar({ year, isHebrewYear: true, il: true, sedrot: true });
+    hebcalEventsByYear.set(year, events);
+  }
+  return events;
+}
+
+function makeHebrewCalendarEntry(date: HDate, halacha: DailyHalacha | null) {
+  const parshaEvent = getHebcalEventsForYear(date.getFullYear()).find(
+    (event) => event.getDate().abs() === date.abs() && event.getDesc().startsWith('Parashat ')
+  );
+  const holidayNames = (getHolidaysOnDate(date, true) || []).map((event) =>
+    stripHebrewVowels(event.render('he'))
+  );
+
+  return {
+    halacha,
+    date,
+    monthKey: `${date.getFullYear()}-${date.getMonth()}`,
+    dayLabel: hebrewDayNumber(date.getDate()),
+    weekday: hebrewWeekdays[date.getDay()],
+    parsha: parshaEvent ? stripHebrewVowels(parshaEvent.render('he')) : '',
+    holidayNames: Array.from(new Set(holidayNames)),
+  };
+}
+
+function makeHebrewDateEntry(halacha: DailyHalacha) {
+  try {
+    const parsedHeading = parseDocumentHebrewHeading(halacha.hebrewDate || '');
+    if (!parsedHeading || parsedHeading.date.getFullYear() !== halachaHebrewYear) return null;
+    return makeHebrewCalendarEntry(parsedHeading.date, halacha);
+  } catch {
+    return null;
+  }
+}
+
+function parseDocumentHebrewHeading(line: string) {
+  const heading = line.replace(/\*/g, '').replace(/^[#*-]\s*/, '').trim();
+  const weekdayMatch = heading.match(/^(?:יום\s+)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?:\s|$)/);
+  const dateHeading = heading.replace(/^(?:יום\s+)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)\s+/, '');
+  const dateMatch = dateHeading.match(
+    /^([א-ת][א-ת״׳"']*)\s+(?:ב)?(תשרי|מרחשוון|מרחשון|חשוון|חשון|כסלו|טבת|שבט|אדר\s*[אב](?:[״׳"']?)?|ניסן|אייר|סיון|סיוון|תמוז|אב|אלול)(?=$|[\s,])/u
+  );
+
+  if (!dateMatch) return null;
+
+  const dateText = dateMatch[0].trim().replace(/"/g, '״').replace(/'/g, '׳');
+  let date: HDate;
+  try {
+    date = HDate.fromGematriyaString(`${dateText} ${halachaHebrewYearText}`);
+  } catch {
+    return null;
+  }
+
+  const calendarWeekday = hebrewWeekdays[date.getDay()];
+  const hasShabbatLabel = /(?:^|[\s,])שבת(?:\s|$)/.test(heading);
+  if (hasShabbatLabel && calendarWeekday !== 'שבת') {
+    throw new Error(
+      `אי התאמה בכותרת "${heading}": התאריך לפי לוח תשפ״ז חל ביום ${calendarWeekday}, אך הכותרת מציינת שבת ופרשה.`
+    );
+  }
+
+  const weekdayCorrection = weekdayMatch && weekdayMatch[1] !== calendarWeekday
+    ? `${weekdayMatch[1]} → ${calendarWeekday}`
+    : '';
+  const normalizedHeading = weekdayCorrection
+    ? heading.replace(/^(יום\s+)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?=\s)/, (_, prefix = '') => `${prefix}${calendarWeekday}`)
+    : heading;
+
+  const gregorianParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date.greg());
+  const gregorianDate = ['year', 'month', 'day']
+    .map((part) => gregorianParts.find((value) => value.type === part)?.value)
+    .join('-');
+
+  return { date, gregorianDate, heading: normalizedHeading, weekdayCorrection };
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -76,8 +177,107 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'students' | 'prizes' | 'invitations' | 'managers' | 'classes'
+    'halachot' | 'hebrew-date' | 'students' | 'prizes' | 'managers' | 'classes'
   >('halachot');
+
+  const sortedHalachot = React.useMemo(
+    () => [...halachot].sort((a, b) => a.date.localeCompare(b.date)),
+    [halachot]
+  );
+
+  const hebrewDateEntries = React.useMemo(
+    () => {
+      const parsedEntries = sortedHalachot
+        .map(makeHebrewDateEntry)
+        .filter((entry) => entry !== null && entry.date.getFullYear() === halachaHebrewYear);
+      const uniqueByHebrewDate = new Map<number, (typeof parsedEntries)[number]>();
+      parsedEntries.forEach((entry) => uniqueByHebrewDate.set(entry.date.abs(), entry));
+      return Array.from(uniqueByHebrewDate.values()).sort((a, b) => a.date.abs() - b.date.abs());
+    },
+    [sortedHalachot]
+  );
+
+  const monthOptions = React.useMemo(() => {
+    const year = halachaHebrewYear;
+    const monthOrder = [
+      months.TISHREI,
+      months.CHESHVAN,
+      months.KISLEV,
+      months.TEVET,
+      months.SHVAT,
+      months.ADAR_I,
+      ...(HDate.isLeapYear(year) ? [months.ADAR_II] : []),
+      months.NISAN,
+      months.IYYAR,
+      months.SIVAN,
+      months.TAMUZ,
+      months.AV,
+      months.ELUL,
+    ];
+
+    return monthOrder.map((month) => {
+      const firstDay = new HDate(1, month, year);
+      return {
+        key: `${year}-${month}`,
+        label: stripHebrewVowels(
+          new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { month: 'long' }).format(firstDay.greg())
+        ).replace(/[׳״'\"]/g, ''),
+      };
+    });
+  }, []);
+
+  const currentHebrewDate = new HDate(new Date());
+  const currentMonthKey = `${currentHebrewDate.getFullYear()}-${currentHebrewDate.getMonth()}`;
+  const [selectedMonthKey, setSelectedMonthKey] = useState('');
+
+  const [selectedHebrewDateAbs, setSelectedHebrewDateAbs] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!monthOptions.length) {
+      setSelectedMonthKey('');
+      return;
+    }
+
+    setSelectedMonthKey((current) => {
+      if (current && monthOptions.some((month) => month.key === current)) return current;
+      return monthOptions.find((month) => month.key === currentMonthKey)?.key || monthOptions[0].key;
+    });
+  }, [monthOptions, currentMonthKey]);
+
+  const selectedMonthDays = React.useMemo(
+    () => {
+      const monthNumber = Number(selectedMonthKey.split('-')[1]);
+      if (!monthNumber) return [];
+
+      const halachotByHebrewDate = new Map<number, DailyHalacha>();
+      hebrewDateEntries.forEach((entry) => halachotByHebrewDate.set(entry.date.abs(), entry.halacha));
+
+      const firstDay = new HDate(1, monthNumber, halachaHebrewYear);
+      return Array.from({ length: firstDay.daysInMonth() }, (_, index) => {
+        const date = new HDate(index + 1, monthNumber, halachaHebrewYear);
+        return makeHebrewCalendarEntry(date, halachotByHebrewDate.get(date.abs()) || null);
+      });
+    },
+    [hebrewDateEntries, selectedMonthKey]
+  );
+
+  React.useEffect(() => {
+    if (!selectedMonthDays.length) {
+      setSelectedHebrewDateAbs(null);
+      return;
+    }
+
+    setSelectedHebrewDateAbs((current) => {
+      if (current !== null && selectedMonthDays.some((entry) => entry.date.abs() === current)) return current;
+      const firstDayWithHalacha = selectedMonthDays.find((entry) => entry.halacha);
+      return firstDayWithHalacha?.date.abs() ?? selectedMonthDays[0].date.abs();
+    });
+  }, [selectedMonthDays]);
+
+  const selectedEntry = selectedMonthDays.find((entry) => entry.date.abs() === selectedHebrewDateAbs)
+    || selectedMonthDays[0]
+    || null;
+  const selectedHalacha = selectedEntry?.halacha || null;
 
   // School Classes Management State
   const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
@@ -166,38 +366,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Invitations State
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
-  const [isNewInvModalOpen, setIsNewInvModalOpen] = useState(false);
-  const [copiedInvId, setCopiedInvId] = useState<string | null>(null);
-  const [newInv, setNewInv] = useState<{
-    className: string;
-    grade: GradeType;
-    maxUses: number;
-    code: string;
-  }>({
-    className: "ט'1",
-    grade: 'ט',
-    maxUses: 50,
-    code: '',
-  });
-
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        onRefreshData(),
-        fetchInvitationsApi().then((list) => setInvitations(list)),
-      ]);
+      await onRefreshData();
     } finally {
       setTimeout(() => setIsRefreshing(false), 400);
     }
   };
 
   React.useEffect(() => {
-    fetchInvitationsApi().then((list) => setInvitations(list));
     // Auto-poll every 5 seconds so newly registered students appear automatically without manual reload
     const interval = setInterval(() => {
       onRefreshData();
@@ -210,47 +390,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onRefreshData();
     }
   }, [activeAdminTab]);
-
-  const handleCreateInvitation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newInv.code.trim() || !newInv.className.trim()) {
-      alert('נא למלא קוד וכיתה');
-      return;
-    }
-    try {
-      const res = await createInvitationApi({
-        className: newInv.className,
-        grade: newInv.grade,
-        maxUses: newInv.maxUses,
-        code: newInv.code.trim().toUpperCase(),
-      });
-      setInvitations(res.invitations);
-      setIsNewInvModalOpen(false);
-      setNewInv({ className: "ט'1", grade: 'ט', maxUses: 50, code: '' });
-    } catch (e) {
-      console.error(e);
-      alert('שגיאה ביצירת קוד הזמנה');
-    }
-  };
-
-  const handleDeleteInvitation = async (id: string) => {
-    if (confirm('האם למחוק קוד הזמנה זה?')) {
-      try {
-        const res = await deleteInvitationApi(id);
-        setInvitations(res.invitations);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
-
-  const copyInviteLink = (code: string, invId: string) => {
-    const origin = window.location.origin;
-    const url = `${origin}/#register?invite=${encodeURIComponent(code)}`;
-    navigator.clipboard.writeText(url);
-    setCopiedInvId(invId);
-    setTimeout(() => setCopiedInvId(null), 2500);
-  };
 
   // Student Search / Filter State
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
@@ -410,14 +549,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setImportDocMsg({ type: 'info', text: 'מתחבר ל-Google Drive ומאחזר את מסמך ההלכות...' });
 
     try {
-      let accessToken = getCachedGoogleAccessToken();
-
-      // If no token in memory, prompt Google SSO popup with Drive scope
-      if (!accessToken) {
-        setImportDocMsg({ type: 'info', text: 'נא לאשר גישה למסמך ה-Google Doc בחלון של Google...' });
-        const { accessToken: freshToken } = await signInWithGoogleSSO(true);
-        accessToken = freshToken || null;
-      }
+      setImportDocMsg({ type: 'info', text: 'נא לאשר גישה ל-Google Drive בחלון של Google...' });
+      const { accessToken } = await signInWithGoogleSSO(true);
 
       if (!accessToken) {
         throw new Error('לא התקבל טוקן גישה מ-Google. נא לנסות שוב או להדביק את הטקסט ישירות.');
@@ -437,8 +570,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         // Safe cross-platform text decoding to prevent Hebrew layout distortion
         const buffer = await res.arrayBuffer();
         extractedText = new TextDecoder('utf-8').decode(buffer);
-      } else {
-        // 2. If it's an uploaded Word (.docx or .doc) binary file, download binary buffer
+      } else if (res.status === 400) {
+        // Uploaded Word documents cannot use the Google Docs export endpoint.
         const resAlt = await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -446,15 +579,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         });
 
         if (!resAlt.ok) {
-          throw new Error(`שגיאה בטעינת הקובץ מ-Google Drive (קוד: ${resAlt.status}). נא לוודא שיש הרשאת צפייה לקובץ.`);
+          const details = await resAlt.text();
+          throw new Error(`שגיאה בטעינת הקובץ מ-Google Drive (קוד: ${resAlt.status}): ${details.slice(0, 300)}`);
         }
 
         const arrayBuf = await resAlt.arrayBuffer();
         setImportDocMsg({ type: 'info', text: 'מפענח את מסמך ה-Word/Docx העברי...' });
-
-        // Send to server-side parser (mammoth + clean text extractor)
         const parseRes = await parseDocContentApi(arrayBuf);
         extractedText = parseRes.text || '';
+      } else {
+        const details = await res.text();
+        throw new Error(`Google Drive לא הצליח לייצא את המסמך כטקסט (קוד: ${res.status}): ${details.slice(0, 300)}`);
       }
 
       if (!extractedText || !extractedText.trim()) {
@@ -492,34 +627,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       let currentHebrewDate = '';
       let currentTitle = '';
       let currentContent: string[] = [];
-      let itemIndex = 0;
-
-      // Hebrew calendar months in order
-      const hebrewMonths = [
-        'תשרי', 'מרחשון', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אדר א', 'אדר ב',
-        'ניסן', 'אייר', 'סיון', 'סיוון', 'תמוז', 'אב', 'אלול'
-      ];
-
-      const isHebrewDateLine = (line: string) => {
-        return hebrewMonths.some((m) => line.includes(m)) && (line.includes('תשפ') || line.includes('יום') || line.includes("'"));
-      };
+      const weekdayCorrections: string[] = [];
 
       const flushCurrent = () => {
-        if (currentContent.length > 0 || currentTitle) {
-          itemIndex++;
-          const dateStr = `2026-${String(Math.min(12, 8 + Math.floor(itemIndex / 30))).padStart(2, '0')}-${String((itemIndex % 28) + 1).padStart(2, '0')}`;
-          const finalHebDate = currentHebrewDate || `תשפ"ז - חלק ${itemIndex}`;
-          const finalTitle = currentTitle || `הלכה יומית - ${finalHebDate}`;
+        if (currentHebrewDate && (currentContent.length > 0 || currentTitle)) {
+          const parsedHeading = parseDocumentHebrewHeading(currentHebrewDate);
+          if (!parsedHeading) {
+            throw new Error(`לא ניתן לזהות תאריך עברי בכותרת: "${currentHebrewDate}"`);
+          }
+          if (parsedHeading.weekdayCorrection) {
+            weekdayCorrections.push(`${currentHebrewDate} (${parsedHeading.weekdayCorrection})`);
+          }
+
+          const finalTitle = currentTitle || `הלכה יומית - ${parsedHeading.heading}`;
+          const existingHalacha = halachot.find(
+            (halacha) => halacha.hebrewDate?.trim() === parsedHeading.heading
+          );
 
           parsedItems.push({
-            id: `halacha-doc-${itemIndex}-${Date.now()}`,
-            date: dateStr,
-            hebrewDate: finalHebDate,
+            id: `halacha-doc-${parsedHeading.gregorianDate}`,
+            date: parsedHeading.gregorianDate,
+            hebrewDate: parsedHeading.heading,
             title: finalTitle,
             topic: 'הלכות תשפ"ז מתוך אהלי הלכה',
             source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
             content: currentContent.join('\n\n') || currentTitle,
-            questions: [
+            questions: existingHalacha?.questions || [
               {
                 id: 'q1',
                 text: `לפי המבואר ב${finalTitle}, מהי ההלכה העיקרית?`,
@@ -556,9 +689,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       };
 
       for (const line of lines) {
-        if (isHebrewDateLine(line)) {
+        if (parseDocumentHebrewHeading(line)) {
           flushCurrent();
-          currentHebrewDate = line.replace(/^[#*-]\s*/, '').trim();
+          currentHebrewDate = line.replace(/\*/g, '').replace(/^[#*-]\s*/, '').trim();
+        } else if (/^חודש\s+/.test(line)) {
+          continue;
         } else if (!currentTitle && (line.length < 80 || line.startsWith('הלכה') || line.startsWith('נושא'))) {
           currentTitle = line.replace(/^[#*-]\s*/, '').trim();
         } else {
@@ -568,53 +703,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       flushCurrent();
 
       if (parsedItems.length === 0) {
-        // If no explicit dates matched, create at least a main halacha entry from text
-        parsedItems.push({
-          id: `halacha-doc-full-${Date.now()}`,
-          date: new Date().toISOString().split('T')[0],
-          hebrewDate: 'שנת תשפ"ז',
-          title: 'הלכות שנת תשפ"ז מתוך המסמך',
-          topic: 'הלכות תשפ"ז',
-          source: 'סדרת אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
-          content: text.slice(0, 3000),
-          questions: [
-            {
-              id: 'q1',
-              text: 'מהו מקור ההלכות בחידון תשפ"ז?',
-              options: ['סדרת אהלי הלכה - פסקי הגאון הרב יעקב אריאל שליט"א', 'ספר אחר', 'מאמר מזדמן', 'מנהג בלבד'],
-              correctOptionIndex: 0,
-              explanation: 'על פי פסקי הרב יעקב אריאל שליט"א.'
-            },
-            {
-              id: 'q2',
-              text: 'לפי איזה לוח מתנהל החידון היומי?',
-              options: ['לפי התאריך העברי של שנת תשפ"ז', 'לפי לוח לועזי בלבד', 'ללא סדר', 'רק בשבתות'],
-              correctOptionIndex: 0,
-              explanation: 'תאריכי החידון נקבעים לפי התאריך העברי.'
-            },
-            {
-              id: 'q3',
-              text: 'כמה שאלות יש בכל חידון יומי?',
-              options: ['4 שאלות אמריקאיות', '10 שאלות פתוחות', 'שאלה אחת', '20 שאלות'],
-              correctOptionIndex: 0,
-              explanation: 'בדיוק 4 שאלות לכל יום.'
-            },
-            {
-              id: 'q4',
-              text: 'איזה ניקוד מקבלת מי שעונה נכון על כל השאלות (4/4)?',
-              options: ['2 נקודות (בונוס מצטיינת יומית)', '1 נקודה', '0 נקודות', '100 נקודות'],
-              correctOptionIndex: 0,
-              explanation: 'בונוס של 2 נקודות למי שעונה נכון על הכל.'
-            }
-          ]
-        });
+          throw new Error('לא זוהו במסמך כותרות תאריך עברי תקינות לשנת תשפ״ז. לא יובאו נתונים.');
       }
 
       // Save via API
       const res = await bulkImportHalachotApi(parsedItems);
       setImportDocMsg({
         type: 'success',
-        text: `נקלטו בהצלחה ${res.addedCount || parsedItems.length} הלכות חדשות לשנת תשפ"ז מתוך המסמך!`,
+        text: `סונכרנו ${parsedItems.length} הלכות לשנת תשפ"ז: ${res.addedCount || 0} חדשות ו-${res.updatedCount || 0} עודכנו.${weekdayCorrections.length ? ` תוקנו ${weekdayCorrections.length} תוויות יום לפי הלוח, למשל: ${weekdayCorrections.slice(0, 3).join('; ')}.` : ''}`,
       });
       onRefreshData();
     } catch (e: any) {
@@ -631,11 +727,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Halacha Edit Modal / Form State
   const [editingHalacha, setEditingHalacha] = useState<DailyHalacha | null>(null);
   const [isSavingHalacha, setIsSavingHalacha] = useState(false);
+  const [editingHebrewDateQuiz, setEditingHebrewDateQuiz] = useState<DailyHalacha | null>(null);
+  const [isSavingHebrewDateQuiz, setIsSavingHebrewDateQuiz] = useState(false);
+  const [hebrewDateQuizError, setHebrewDateQuizError] = useState<string | null>(null);
+
+  const cloneHalachaForEditing = (halacha: DailyHalacha): DailyHalacha => ({
+      ...halacha,
+      questions: halacha.questions.map((question) => ({
+        ...question,
+        options: [...question.options] as Question['options'],
+      })) as DailyHalacha['questions'],
+  });
+
+  const openHalachaEditor = (halacha: DailyHalacha) => {
+    setEditingHalacha(cloneHalachaForEditing(halacha));
+  };
+
+  const updateHebrewDateQuestion = (
+    questionIndex: number,
+    update: (question: Question) => Question
+  ) => {
+    setEditingHebrewDateQuiz((current) => {
+      if (!current) return current;
+      const questions = current.questions.map((question, index) =>
+        index === questionIndex
+          ? update({ ...question, options: [...question.options] as Question['options'] })
+          : question
+      ) as DailyHalacha['questions'];
+      return { ...current, questions };
+    });
+  };
+
+  const handleSaveHebrewDateQuiz = async () => {
+    if (!editingHebrewDateQuiz) return;
+    setIsSavingHebrewDateQuiz(true);
+    setHebrewDateQuizError(null);
+    try {
+      await saveHalachaApi(editingHebrewDateQuiz);
+      setEditingHebrewDateQuiz(null);
+      onRefreshData();
+    } catch (error: any) {
+      setHebrewDateQuizError(error?.message || 'שמירת השאלות והתשובות נכשלה');
+    } finally {
+      setIsSavingHebrewDateQuiz(false);
+    }
+  };
 
   // New Halacha Template
   const createBlankHalacha = (): DailyHalacha => ({
     id: `halacha-${Date.now()}`,
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayInJerusalem(),
+    quizEnabled: true,
     title: 'הלכה יומית חדשה מאהלי הלכה',
     topic: 'הלכות ברכות',
     source: 'אהלי הלכה - על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א',
@@ -783,6 +925,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveAdminTab('hebrew-date')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'hebrew-date'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span>בחירת השאלה היומית</span>
+            </button>
+
+            <button
               onClick={() => setActiveAdminTab('students')}
               className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 activeAdminTab === 'students'
@@ -812,18 +966,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveAdminTab('invitations')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                activeAdminTab === 'invitations'
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'text-amber-200 hover:bg-white/10'
-              }`}
-            >
-              <Key className="w-4 h-4 shrink-0" />
-              <span>הזמנות וקודים</span>
-            </button>
-
-            <button
               onClick={() => setActiveAdminTab('managers')}
               className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 activeAdminTab === 'managers'
@@ -849,6 +991,266 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {activeAdminTab === 'hebrew-date' && (
+        <div className="bg-white border border-amber-200 rounded-3xl shadow-lg p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-100">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-sm">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-amber-950 font-['Heebo']">בחירת השאלה היומית</h3>
+                <p className="text-xs text-amber-800">בחרי יום בלוח העברי לצפייה ולעריכת החידון היומי</p>
+              </div>
+            </div>
+
+            <div className="min-w-[260px]">
+              <label className="block text-[11px] font-black text-slate-700 mb-1">בחרי חודש</label>
+              <select
+                value={selectedMonthKey}
+                onChange={(e) => setSelectedMonthKey(e.target.value)}
+                className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              >
+                {monthOptions.length === 0 ? (
+                  <option value="">אין תאריכים עבריים זמינים</option>
+                ) : (
+                  monthOptions.map((month) => (
+                    <option key={month.key} value={month.key}>
+                      {month.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-amber-200">
+            <div className="flex items-center justify-between gap-3 bg-amber-50 px-4 py-3 border-b border-amber-200">
+              <h4 className="text-sm font-black text-amber-950">
+                {monthOptions.find((month) => month.key === selectedMonthKey)?.label || 'תאריכים בחודש'}
+              </h4>
+              <span className="text-xs font-bold text-amber-800">
+                {selectedMonthDays.length} ימים
+              </span>
+            </div>
+
+            {selectedMonthDays.length === 0 ? (
+              <p className="p-5 text-center text-sm font-bold text-slate-600">לא ניתן להציג את ימי החודש.</p>
+            ) : (
+              <div className="max-h-72 overflow-y-auto">
+                <table className="w-full text-right text-sm">
+                  <thead className="sticky top-0 bg-white text-[11px] font-black text-slate-600 shadow-sm">
+                    <tr>
+                      <th className="px-4 py-2">תאריך</th>
+                      <th className="px-4 py-2">יום בשבוע</th>
+                      <th className="px-4 py-2">פרשה / חג</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedMonthDays.map((entry) => {
+                      const annotations = [entry.parsha, ...entry.holidayNames].filter(Boolean);
+                      const isSelected = entry.date.abs() === selectedHebrewDateAbs;
+
+                      return (
+                        <tr
+                          key={entry.date.abs()}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={isSelected}
+                          onClick={() => setSelectedHebrewDateAbs(entry.date.abs())}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedHebrewDateAbs(entry.date.abs());
+                            }
+                          }}
+                          className={`border-t border-amber-100 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-500 ${
+                            isSelected ? 'bg-amber-100' : 'hover:bg-amber-50'
+                          }`}
+                        >
+                          <td className="px-4 py-3 font-black text-amber-950">{entry.dayLabel}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700">
+                            {entry.weekday}{entry.weekday === 'שבת' ? ' קודש' : ''}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {annotations.length > 0 ? annotations.join(' • ') : entry.halacha ? '—' : 'אין הלכה שמורה'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {!selectedHalacha ? (
+            <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900 font-bold">
+              אין הלכה שמורה ליום {selectedEntry?.dayLabel} בחודש {monthOptions.find((month) => month.key === selectedMonthKey)?.label}.
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
+                  <span className="inline-flex items-center rounded-full bg-amber-600 px-2.5 py-1 text-[10px] font-black text-white shadow-sm">
+                    {selectedHalacha.hebrewDate || 'ללא תאריך עברי'}
+                  </span>
+                  <span className="text-xs text-slate-600 font-bold">{selectedHalacha.date}</span>
+                </div>
+
+                <h4 className="text-xl sm:text-2xl font-black text-amber-950 font-['Heebo']">{selectedHalacha.title}</h4>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
+                  {selectedHalacha.topic && (
+                    <span className="rounded-full bg-white border border-amber-200 px-2.5 py-1 font-bold">נושא: {selectedHalacha.topic}</span>
+                  )}
+                  {selectedHalacha.source && (
+                    <span className="rounded-full bg-white border border-amber-200 px-2.5 py-1 font-bold">מקור: {selectedHalacha.source}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+                <h5 className="text-sm font-black text-slate-800 mb-3">תוכן ההלכה</h5>
+                <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800 font-medium">
+                  {selectedHalacha.content || 'לא הוזן תוכן להלכה זו.'}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <h5 className="text-sm font-black text-slate-800">שאלות החידון</h5>
+                  {editingHebrewDateQuiz?.id !== selectedHalacha.id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHebrewDateQuizError(null);
+                        setEditingHebrewDateQuiz(cloneHalachaForEditing(selectedHalacha));
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                      עריכת שאלות ותשובות
+                    </button>
+                  )}
+                </div>
+
+                {editingHebrewDateQuiz?.id === selectedHalacha.id ? (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-600">עדכני את נוסח השאלות והאפשרויות, וסמני בעיגול את התשובה הנכונה.</p>
+                    {editingHebrewDateQuiz.questions.map((question, questionIndex) => (
+                      <fieldset key={question.id} className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+                        <legend className="px-1 text-xs font-black text-amber-950">שאלה {questionIndex + 1}</legend>
+                        <label className="block text-xs font-bold text-slate-700">
+                          נוסח השאלה
+                          <input
+                            type="text"
+                            value={question.text}
+                            onChange={(event) => updateHebrewDateQuestion(questionIndex, (current) => ({ ...current, text: event.target.value }))}
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium"
+                          />
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {question.options.map((option, optionIndex) => (
+                            <label key={`${question.id}-${optionIndex}`} className={`flex items-center gap-2 rounded-lg border p-2 ${question.correctOptionIndex === optionIndex ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                              <input
+                                type="radio"
+                                name={`hebrew-date-correct-${editingHebrewDateQuiz.id}-${question.id}`}
+                                checked={question.correctOptionIndex === optionIndex}
+                                onChange={() => updateHebrewDateQuestion(questionIndex, (current) => ({ ...current, correctOptionIndex: optionIndex }))}
+                                aria-label={`סמני אפשרות ${optionIndex + 1} כתשובה הנכונה`}
+                              />
+                              <input
+                                type="text"
+                                value={option}
+                                onChange={(event) => updateHebrewDateQuestion(questionIndex, (current) => {
+                                  const options = [...current.options] as Question['options'];
+                                  options[optionIndex] = event.target.value;
+                                  return { ...current, options };
+                                })}
+                                aria-label={`אפשרות ${optionIndex + 1} לשאלה ${questionIndex + 1}`}
+                                className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <label className="block text-xs font-bold text-slate-700">
+                          הסבר לתשובה הנכונה
+                          <input
+                            type="text"
+                            value={question.explanation || ''}
+                            onChange={(event) => updateHebrewDateQuestion(questionIndex, (current) => ({ ...current, explanation: event.target.value }))}
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium"
+                          />
+                        </label>
+                      </fieldset>
+                    ))}
+                    {hebrewDateQuizError && (
+                      <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
+                        {hebrewDateQuizError}
+                      </p>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingHebrewDateQuiz(null)}
+                        disabled={isSavingHebrewDateQuiz}
+                        className="rounded-lg px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        ביטול
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveHebrewDateQuiz}
+                        disabled={isSavingHebrewDateQuiz}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-4 py-2 text-xs font-bold text-white hover:bg-amber-800 disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4" />
+                        {isSavingHebrewDateQuiz ? 'שומר...' : 'שמור שאלות ותשובות'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {selectedHalacha.questions?.map((question, index) => (
+                      <div key={question.id} className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
+                        <div className="flex items-center justify-between gap-3 mb-2">
+                          <p className="text-sm font-black text-slate-800">שאלה {index + 1}</p>
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-1 rounded-full">
+                            תשובה נכונה: {question.correctOptionIndex + 1}
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-slate-800 mb-3">{question.text}</p>
+                        <div className="space-y-2">
+                          {question.options.map((option, optionIndex) => (
+                            <div
+                              key={`${question.id}-${optionIndex}`}
+                              className={`rounded-xl border px-3 py-2 text-sm ${
+                                optionIndex === question.correctOptionIndex
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900 font-bold'
+                                  : 'border-slate-200 bg-white text-slate-700'
+                              }`}
+                            >
+                              <span className="font-black ml-2">{String.fromCharCode(65 + optionIndex)}.</span>
+                              {option}
+                            </div>
+                          ))}
+                        </div>
+                        {question.explanation && (
+                          <div className="mt-3 rounded-xl bg-white border border-amber-200 px-3 py-2 text-xs text-slate-700">
+                            <span className="font-black text-amber-900">הסבר:</span> {question.explanation}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ====================================================
           TAB 1: HALACHOT & QUIZZES MANAGEMENT (+ AI GENERATION)
@@ -1115,6 +1517,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {h.hebrewDate}
                         </span>
                       )}
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${h.quizEnabled === false ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {h.quizEnabled === false ? 'חידון מושבת' : 'חידון פעיל'}
+                      </span>
                       <span className="text-xs font-bold text-amber-900">
                         {h.topic}
                       </span>
@@ -1129,11 +1534,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => setEditingHalacha(h)}
+                      onClick={() => openHalachaEditor(h)}
                       className="p-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1 transition-colors"
                     >
                       <Edit className="w-3.5 h-3.5" />
-                      <span>ערוך</span>
+                      <span>שאלות ותשובות</span>
                     </button>
                     <button
                       onClick={() => handleDeleteHalacha(h.id)}
@@ -1154,7 +1559,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-amber-200 p-4 sm:p-8 space-y-4 sm:space-y-6 my-auto max-h-[92vh] flex flex-col">
                 <div className="flex items-center justify-between border-b border-amber-100 pb-3 sm:pb-4 shrink-0">
                   <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo']">
-                    עריכת הלכה יומית וחידון
+                    עריכת הלכה, שאלות ותשובות
                   </h3>
                   <button
                     onClick={() => setEditingHalacha(null)}
@@ -1202,6 +1607,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
+                  <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-950">
+                    <input
+                      type="checkbox"
+                      checked={editingHalacha.quizEnabled !== false}
+                      onChange={(e) => setEditingHalacha({ ...editingHalacha, quizEnabled: e.target.checked })}
+                      className="h-4 w-4 accent-amber-700"
+                    />
+                    לאפשר לתלמידות להיבחן בתאריך הזה
+                  </label>
+
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">מקור בספר "אהלי הלכה" (לדוגמה: אהלי הלכה - חלק א', פרק כ')</label>
                     <input
@@ -1244,6 +1659,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <h4 className="font-extrabold text-amber-950 text-base">
                       4 שאלות החידון היומי:
                     </h4>
+                    <p className="text-xs text-slate-600">
+                      ערכי את השאלות והאפשרויות, וסמני בעיגול את התשובה הנכונה לכל שאלה.
+                    </p>
 
                     {editingHalacha.questions.map((q, qIdx) => (
                       <div key={q.id} className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 space-y-3">
@@ -1973,216 +2391,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* ====================================================
-          TAB 4: INVITATIONS & CLASS CODES MANAGEMENT
-      ==================================================== */}
-      {activeAdminTab === 'invitations' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
-              <div>
-                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
-                  <Key className="w-5 h-5 text-amber-600" />
-                  <span>ניהול קודי הזמנה וקישורי הרשמה לתלמידות</span>
-                </h3>
-                <p className="text-xs text-amber-800">
-                  צרו קודי הזמנה ייעודיים לכל כיתה ושכבה באולפנה. תלמידות שיירשמו עם הקוד יאושרו אוטומטית למבצע!
-                </p>
-              </div>
-
-              <button
-                onClick={() => setIsNewInvModalOpen(true)}
-                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-2 transition-all shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>יצירת קוד הזמנה חדש</span>
-              </button>
-            </div>
-
-            {/* Invitations List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {invitations.map((inv) => {
-                const isCopied = copiedInvId === inv.id;
-                const percent = inv.maxUses > 0 ? Math.min(100, Math.round((inv.usedCount / inv.maxUses) * 100)) : 0;
-
-                return (
-                  <div
-                    key={inv.id}
-                    className="bg-amber-50/50 border border-amber-200/90 rounded-2xl p-5 space-y-4 hover:shadow-md transition-shadow relative"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="bg-amber-200/80 text-amber-950 text-[11px] font-extrabold px-2.5 py-0.5 rounded-md">
-                          כיתה {inv.className} (שכבה {inv.grade}')
-                        </span>
-                        <h4 className="text-xl font-black font-mono text-amber-900 tracking-wider mt-2">
-                          {inv.code}
-                        </h4>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteInvitation(inv.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        title="מחק קוד"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Progress Uses */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-                        <span>שימושים: {inv.usedCount} מתוך {inv.maxUses}</span>
-                        <span>{percent}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-amber-200/60 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-600 rounded-full transition-all duration-300"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Copy Link Button */}
-                    <button
-                      onClick={() => copyInviteLink(inv.code, inv.id)}
-                      className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all ${
-                        isCopied
-                          ? 'bg-emerald-600 text-white shadow-sm'
-                          : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100/50'
-                      }`}
-                    >
-                      {isCopied ? (
-                        <>
-                          <Check className="w-4 h-4 text-white" />
-                          <span>הקישור הועתק בהצלחה!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 text-amber-700" />
-                          <span>העתק קישור הרשמה ישיר</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* New Invitation Modal */}
-          {isNewInvModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-              <div className="bg-white rounded-3xl p-4 sm:p-6 border border-amber-200 shadow-2xl max-w-md w-full space-y-4 animate-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="font-extrabold text-amber-950 text-base flex items-center gap-2 font-['Heebo']">
-                    <Key className="w-5 h-5 text-amber-600 shrink-0" />
-                    <span>יצירת קוד הזמנה חדש</span>
-                  </h3>
-                  <button
-                    onClick={() => setIsNewInvModalOpen(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCreateInvitation} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      קוד הזמנה (לדוגמה: ULPA-2026-T1) *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="ULPA-2026-T1"
-                      value={newInv.code}
-                      onChange={(e) => setNewInv({ ...newInv, code: e.target.value.toUpperCase() })}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono text-xs font-bold text-amber-900 uppercase focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        כיתה *
-                      </label>
-                      <select
-                        value={newInv.className}
-                        onChange={(e) => {
-                          const cls = e.target.value;
-                          setNewInv({
-                            ...newInv,
-                            className: cls,
-                            grade: inferGradeFromClass(cls),
-                          });
-                        }}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
-                      >
-                        {classesList.map((c) => (
-                          <option key={c} value={c}>
-                            כיתה {c}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        שכבה *
-                      </label>
-                      <select
-                        value={newInv.grade}
-                        onChange={(e) => {
-                          const g = e.target.value as GradeType;
-                          setNewInv({ ...newInv, grade: g });
-                        }}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
-                      >
-                        <option value="ט">שכבת ט'</option>
-                        <option value="י">שכבת י'</option>
-                        <option value="יא">שכבת יא'</option>
-                        <option value="יב">שכבת יב'</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      מכסת שימושים מרבית
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="1000"
-                      value={newInv.maxUses}
-                      onChange={(e) => setNewInv({ ...newInv, maxUses: Number(e.target.value) })}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                    <button
-                      type="button"
-                      onClick={() => setIsNewInvModalOpen(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                    >
-                      ביטול
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-sm"
-                    >
-                      צור קוד הזמנה
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
         </div>
       )}
 

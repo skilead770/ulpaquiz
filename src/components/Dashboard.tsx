@@ -20,6 +20,7 @@ interface DashboardProps {
   student: Student;
   halachot: DailyHalacha[];
   selectedDate: string;
+  todayDate: string;
   onSelectDate: (date: string) => void;
   onStartQuiz: () => void;
   onViewLeaderboards: () => void;
@@ -29,14 +30,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   student,
   halachot,
   selectedDate,
+  todayDate,
   onSelectDate,
   onStartQuiz,
   onViewLeaderboards,
 }) => {
   const [showSubmissionDetails, setShowSubmissionDetails] = useState(false);
 
-  const currentHalacha =
-    halachot.find((h) => h.date === selectedDate) || halachot[0];
+  const currentHalacha = halachot.find((h) => h.date === selectedDate);
+  const canTakeQuiz = selectedDate === todayDate && currentHalacha?.quizEnabled !== false;
 
   const isCompletedToday = student.completedDates.includes(selectedDate);
   const submission = student.submissions[selectedDate];
@@ -204,7 +206,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </h3>
             </div>
 
-            {isCompletedToday ? (
+              {isCompletedToday ? (
               <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3.5 sm:px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold shadow-xs shrink-0">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <div>
@@ -214,11 +216,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </p>
                 </div>
               </div>
-            ) : (
+              ) : canTakeQuiz ? (
               <div className="bg-amber-200/80 text-amber-950 px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-bold border border-amber-300/60 shrink-0 self-start sm:self-auto">
                 <Flame className="w-4 h-4 text-amber-700 animate-bounce shrink-0" />
                 <span>מוכנה לחידון? קראי ועני!</span>
               </div>
+              ) : (
+                <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-2xl text-xs font-bold border border-slate-200 shrink-0 self-start sm:self-auto">
+                  {selectedDate !== todayDate ? 'אפשר להיבחן רק על החידון של היום' : 'לא נקבע חידון לתאריך זה'}
+                </div>
             )}
           </div>
 
@@ -235,7 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span>נלקח מתוך סדרת "אהלי הלכה" • 2 דק' קריאה • 4 שאלות</span>
               </div>
 
-              {!isCompletedToday ? (
+              {!isCompletedToday && canTakeQuiz ? (
                 <button
                   onClick={onStartQuiz}
                   className="w-full sm:w-auto bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 text-white font-extrabold text-sm sm:text-base px-6 sm:px-8 py-3.5 rounded-2xl shadow-lg shadow-amber-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 sm:gap-3 cursor-pointer group"
@@ -244,7 +250,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span>סיימתי ללמוד, מעבר לחידון היומי</span>
                   <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform shrink-0" />
                 </button>
-              ) : (
+              ) : isCompletedToday ? (
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
                   <button
                     onClick={() => setShowSubmissionDetails(!showSubmissionDetails)}
@@ -261,6 +267,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <Award className="w-4 h-4 shrink-0" />
                     <span>עבור לתחרות הכיתתית</span>
                   </button>
+                </div>
+              ) : (
+                <div className="w-full sm:w-auto text-center text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl">
+                  {selectedDate !== todayDate ? 'החידון ייפתח ביום שלו' : 'המנהלת השביתה את החידון לתאריך זה'}
                 </div>
               )}
             </div>

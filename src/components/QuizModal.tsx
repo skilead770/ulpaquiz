@@ -44,7 +44,18 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   } | null>(null);
 
   const questions = halacha.questions;
+  const [shuffledOptionsByQuestion] = useState(() =>
+    questions.map((question) => {
+      const options = question.options.map((text, originalIndex) => ({ text, originalIndex }));
+      for (let index = options.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [options[index], options[swapIndex]] = [options[swapIndex], options[index]];
+      }
+      return options;
+    })
+  );
   const currentQuestion = questions[currentQuestionIndex];
+  const currentOptions = shuffledOptionsByQuestion[currentQuestionIndex];
   const allAnswered = questions.every((q) => selectedAnswers[q.id] !== undefined);
 
   const handleSelectOption = (questionId: string, optionIndex: number) => {
@@ -163,15 +174,14 @@ export const QuizModal: React.FC<QuizModalProps> = ({
 
               {/* Options */}
               <div className="space-y-2">
-                {currentQuestion.options.map((option, optIdx) => {
-                  const isSelected =
-                    selectedAnswers[currentQuestion.id] === optIdx;
+                {currentOptions.map(({ text, originalIndex }, displayIndex) => {
+                  const isSelected = selectedAnswers[currentQuestion.id] === originalIndex;
 
                   return (
                     <button
-                      key={optIdx}
+                      key={originalIndex}
                       onClick={() =>
-                        handleSelectOption(currentQuestion.id, optIdx)
+                        handleSelectOption(currentQuestion.id, originalIndex)
                       }
                       className={`w-full text-right p-3 sm:p-4 rounded-xl border font-semibold text-xs sm:text-sm transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
                         isSelected
@@ -187,9 +197,9 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                               : 'bg-amber-100 text-amber-900'
                           }`}
                         >
-                          {['א', 'ב', 'ג', 'ד'][optIdx]}
+                          {['א', 'ב', 'ג', 'ד'][displayIndex]}
                         </span>
-                        <span className="leading-snug break-words flex-1 text-right">{option}</span>
+                        <span className="leading-snug break-words flex-1 text-right">{text}</span>
                       </div>
                       {isSelected && <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-white shrink-0" />}
                     </button>

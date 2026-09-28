@@ -5,7 +5,13 @@ import {
   User as FirebaseUser,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { auth } from './firebaseClient';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from 'firebase/firestore';
+import { auth, db } from './firebaseClient';
 import { Student, Manager } from '../types';
 
 export interface AuthSession {
@@ -55,6 +61,121 @@ export async function signInWithGoogleSSO(requestDriveScope = false): Promise<{ 
  */
 export async function signOutSSO(): Promise<void> {
   await firebaseSignOut(auth);
+}
+
+/**
+ * Resolve the Firebase-authenticated user's current role directly from Firestore.
+ * This is the first migration chunk: it removes dependence on the custom backend
+ * for the normal auth decision while keeping the backend as an emergency fallback.
+ */
+export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | null): Promise<{
+  success: boolean;
+  role: 'admin' | 'student' | 'pending' | 'rejected' | 'unauthorized';
+  email: string;
+  name?: string;
+  picture?: string;
+  student?: Student;
+  manager?: Manager;
+  message?: string;
+  error?: string;
+}> {
+  const email = (firebaseUser?.email || '').trim().toLowerCase();
+  const name = firebaseUser?.displayName || undefined;
+  const picture = firebaseUser?.photoURL || undefined;
+
+  if (!email) {
+    return {
+      success: false,
+      role: 'unauthorized',
+      email: '',
+      name,
+      picture,
+      message: 'לא נמצא חשבון Google מחובר.',
+      error: 'MISSING_USER_EMAIL',
+    };
+  }
+
+  try {
+    const managersRef = collection(db, 'managers');
+    const managerQuery = query(managersRef, where('email', '==', email));
+    const managerSnap = await getDocs(managerQuery);
+
+    if (!managerSnap.empty) {
+      const manager = managerSnap.docs[0].data() as Manager;
+      return {
+        success: true,
+        role: 'admin',
+        email,
+        name: name || manager.name || email.split('@')[0],
+        picture,
+        manager,
+        message: `שלום מנהל המערכת (${manager.name || email})!`,
+      };
+    }
+
+    const studentsRef = collection(db, 'students');
+    const studentQuery = query(studentsRef, where('email', '==', email));
+    const studentSnap = await getDocs(studentQuery);
+
+    if (!studentSnap.empty) {
+      const student = studentSnap.docs[0].data() as Student;
+
+      if (student.status === 'pending') {
+        return {
+          success: false,
+          role: 'pending',
+          email,
+          name: student.fullName || name || email.split('@')[0],
+          picture,
+          student,
+          message: `שלום ${student.fullName}! בקשת ההרשמה שלך ממתינה לאישור מנהל האולפנה.`,
+        };
+      }
+
+      if (student.status === 'rejected') {
+        return {
+          success: false,
+          role: 'rejected',
+          email,
+          name: student.fullName || name || email.split('@')[0],
+          picture,
+          student,
+          message: `בקשת ההרשמה של ${student.fullName} נדחתה. נא לפנות להנהלת האולפנה.`,
+          error: 'STUDENT_REJECTED',
+        };
+      }
+
+      return {
+        success: true,
+        role: 'student',
+        email,
+        name: student.fullName || name || email.split('@')[0],
+        picture,
+        student,
+        message: `שלום ${student.fullName}! התחברת בהצלחה.`,
+      };
+    }
+
+    return {
+      success: false,
+      role: 'unauthorized',
+      email,
+      name,
+      picture,
+      message: `חשבון Google זה (${email}) אינו רשום עדיין במערכת. אנא הרשמי למבצע.`,
+    };
+  } catch (err: any) {
+    console.warn('[Auth] Firebase direct auth resolution failed, falling back to backend:', err);
+    return {
+      success: false,
+      role: 'unauthorized',
+      email,
+      name,
+      picture,
+      message: 'אימות המשתמש מול Firebase נכשל. מנסה גיבוי מאובטח...',
+      error: err?.message || 'DIRECT_AUTH_FAILED',
+    };
+  }
 }
 
 /**

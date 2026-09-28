@@ -17,6 +17,7 @@ import { Leaderboards } from './components/Leaderboards';
 import { AdminPanel } from './components/AdminPanel';
 import { RegisterPage } from './components/RegisterPage';
 import { EntryScreen } from './components/EntryScreen';
+import { getStudentQuizDateWindow, getTodayInJerusalem, uniqueQuizzesByDate } from './lib/quizSchedule';
 
 export default function App() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -28,7 +29,8 @@ export default function App() {
   const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(() => {
     return localStorage.getItem('halacha_current_user') || null;
   });
-  const [selectedDate, setSelectedDate] = useState<string>('2026-07-31');
+  const [todayDate, setTodayDate] = useState(() => getTodayInJerusalem());
+  const [selectedDate, setSelectedDate] = useState<string>(todayDate);
   const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
 
   // Modals state
@@ -71,6 +73,18 @@ export default function App() {
   useEffect(() => {
     loadData();
   }, [selectedDate]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const currentDate = getTodayInJerusalem();
+      setTodayDate((previousDate) => previousDate === currentDate ? previousDate : currentDate);
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    setSelectedDate(todayDate);
+  }, [todayDate]);
 
   const handleResetDemo = async () => {
     if (confirm('האם לאפס את כל הנתונים, הניקוד והחידונים למצב ההתחלתי?')) {
@@ -139,6 +153,11 @@ export default function App() {
   }
 
   const currentStudent = students.find((s) => s.id === currentStudentId) || (currentStudentId !== 'admin' ? students[0] : null);
+  const studentDateWindow = new Set(getStudentQuizDateWindow(todayDate));
+  const dashboardHalachot = currentStudentId === 'admin'
+    ? halachot
+    : uniqueQuizzesByDate(halachot.filter((halacha) => studentDateWindow.has(halacha.date)));
+  const selectedHalacha = dashboardHalachot.find((halacha) => halacha.date === selectedDate);
 
   return (
     <div className="min-h-screen flex flex-col bg-amber-50/40 text-slate-800 font-['Assistant',sans-serif]">
@@ -158,10 +177,15 @@ export default function App() {
         {activeTab === 'study' && currentStudent && (
           <Dashboard
             student={currentStudent}
-            halachot={halachot}
+            halachot={dashboardHalachot}
             selectedDate={selectedDate}
+            todayDate={todayDate}
             onSelectDate={(d) => setSelectedDate(d)}
-            onStartQuiz={() => setShowQuizModal(true)}
+            onStartQuiz={() => {
+              if (selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false) {
+                setShowQuizModal(true);
+              }
+            }}
             onViewLeaderboards={() => setActiveTab('leaderboard')}
           />
         )}
@@ -200,10 +224,10 @@ export default function App() {
       </footer>
 
       {/* Quiz Modal */}
-      {showQuizModal && currentStudent && halachot.length > 0 && (
+      {showQuizModal && currentStudent && selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false && (
         <QuizModal
           student={currentStudent}
-          halacha={halachot.find((h) => h.date === selectedDate) || halachot[0]}
+          halacha={selectedHalacha}
           onClose={() => setShowQuizModal(false)}
           onQuizSubmitted={handleQuizSubmitted}
         />

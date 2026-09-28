@@ -2,18 +2,141 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to check if the user is a manager
+    // Helper function to check if the user is a verified manager.
     function isAdmin() {
-      return request.auth != null && 
-        exists(/databases/$(database)/documents/managers/$(request.auth.token.email.replace("[^a-zA-Z0-9_]", "_")));
+      let managerPath = /databases/$(database)/documents/managers/$(request.auth.token.email.replace("[^a-zA-Z0-9_]", "_"));
+      return request.auth != null &&
+        request.auth.token.email is string &&
+        request.auth.token.email_verified == true &&
+        exists(managerPath) &&
+        get(managerPath).data.email == request.auth.token.email;
     }
     
-    // Helper to check if the user is the owner of the student document
+    // Student ownership is based on a verified Firebase Auth email, not a client-supplied ID.
     function isOwner(studentId) {
-      // If we store the student's email as their ID or in the doc, we could check that.
-      // But based on types.ts, Student.id is used.
-      // If students login with SSO, request.auth.uid might match studentId if correctly mapped.
-      return request.auth != null && (request.auth.uid == studentId || request.auth.token.email == get(/databases/$(database)/documents/students/$(studentId)).data.email);
+      return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        resource.data.email is string &&
+        request.auth.token.email == resource.data.email &&
+        studentId == resource.data.id;
+    }
+
+    function isValidStudentDocument(data) {
+      return data.keys().hasAll([
+          'id', 'fullName', 'className', 'grade', 'username', 'points',
+          'completedDates', 'submissions'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'fullName', 'className', 'grade', 'username', 'email',
+          'password', 'points', 'completedDates', 'submissions', 'status',
+          'registeredAt', 'invitationCode'
+        ]) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 150 &&
+        data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 120 &&
+        data.className is string && data.className.size() > 0 && data.className.size() <= 40 &&
+        data.grade in ['ט', 'י', 'יא', 'יב'] &&
+        data.username is string && data.username.size() > 0 && data.username.size() <= 64 &&
+        data.points is int && data.points >= 0 && data.points <= 1000000 &&
+        data.completedDates is list && data.completedDates.size() <= 400 &&
+        data.submissions is map && data.submissions.size() <= 400 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 254)) &&
+        (!('password' in data) || (data.password is string && data.password.size() <= 100)) &&
+        (!('status' in data) || data.status in ['approved', 'pending', 'rejected']) &&
+        (!('registeredAt' in data) || (data.registeredAt is string && data.registeredAt.size() <= 40)) &&
+        (!('invitationCode' in data) || (data.invitationCode is string && data.invitationCode.size() <= 64));
+    }
+
+    function isValidPendingRegistration(data) {
+      return isValidStudentDocument(data) &&
+        data.keys().hasAll(['email', 'status']) &&
+        data.email is string && data.email.matches("^[A-Za-z0-9._%+-]+@gmail\\.com$") &&
+        data.status == 'pending' &&
+        data.points == 0 &&
+        data.completedDates.size() == 0 &&
+        data.submissions.size() == 0 &&
+        !('password' in data);
+    }
+
+    function dateMatchesTimestamp(date, time) {
+      let parts = date.split('-');
+      return date is string &&
+        date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        int(parts[0]) == time.year() &&
+        int(parts[1]) == time.month() &&
+        int(parts[2]) == time.day();
+    }
+
+    function isCurrentJerusalemDate(date) {
+      return dateMatchesTimestamp(date, request.time + duration.value(2, 'h')) ||
+        dateMatchesTimestamp(date, request.time + duration.value(3, 'h'));
+    }
+
+    function hasValidQuizAnswers(questions, answers, score) {
+      let q1 = questions[0];
+      let q2 = questions[1];
+      let q3 = questions[2];
+      let q4 = questions[3];
+      let correctCount =
+        (answers[q1.id] == q1.correctOptionIndex ? 1 : 0) +
+        (answers[q2.id] == q2.correctOptionIndex ? 1 : 0) +
+        (answers[q3.id] == q3.correctOptionIndex ? 1 : 0) +
+        (answers[q4.id] == q4.correctOptionIndex ? 1 : 0);
+
+      return questions is list && questions.size() == 4 &&
+        answers is map && answers.size() == 4 &&
+        answers.keys().hasOnly([q1.id, q2.id, q3.id, q4.id]) &&
+        answers.keys().hasAll([q1.id, q2.id, q3.id, q4.id]) &&
+        answers[q1.id] is int && answers[q1.id] >= 0 && answers[q1.id] <= 3 &&
+        answers[q2.id] is int && answers[q2.id] >= 0 && answers[q2.id] <= 3 &&
+        answers[q3.id] is int && answers[q3.id] >= 0 && answers[q3.id] <= 3 &&
+        answers[q4.id] is int && answers[q4.id] >= 0 && answers[q4.id] <= 3 &&
+        q1.correctOptionIndex is int && q1.correctOptionIndex >= 0 && q1.correctOptionIndex <= 3 &&
+        q2.correctOptionIndex is int && q2.correctOptionIndex >= 0 && q2.correctOptionIndex <= 3 &&
+        q3.correctOptionIndex is int && q3.correctOptionIndex >= 0 && q3.correctOptionIndex <= 3 &&
+        q4.correctOptionIndex is int && q4.correctOptionIndex >= 0 && q4.correctOptionIndex <= 3 &&
+        score == correctCount;
+    }
+
+    function isValidQuizSubmission(date) {
+      let submission = request.resource.data.submissions[date];
+      let quizPath = /databases/$(database)/documents/halachot/$(submission.halachaId);
+      let quiz = get(quizPath).data;
+
+      return isCurrentJerusalemDate(date) &&
+        submission is map &&
+        submission.keys().hasOnly(['date', 'halachaId', 'score', 'earnedPoints', 'submittedAt', 'answers']) &&
+        submission.date == date &&
+        submission.halachaId is string && submission.halachaId.size() <= 150 &&
+        quiz.date == date &&
+        (!('quizEnabled' in quiz) || quiz.quizEnabled == true) &&
+        quiz.questions is list && quiz.questions.size() == 4 &&
+        submission.score is int && submission.score >= 0 && submission.score <= 4 &&
+        submission.earnedPoints is int &&
+        submission.earnedPoints == (submission.score == 4 ? 2 : 1) &&
+        submission.submittedAt is string && submission.submittedAt.size() <= 32 &&
+        hasValidQuizAnswers(quiz.questions, submission.answers, submission.score);
+    }
+
+    function isValidQuizProgressUpdate(studentId) {
+      let date = request.resource.data.completedDates[resource.data.completedDates.size()];
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let submissionChanges = request.resource.data.submissions.diff(resource.data.submissions);
+
+      return isOwner(studentId) &&
+        resource.data.status == 'approved' &&
+        isValidStudentDocument(request.resource.data) &&
+        affected.hasOnly(['points', 'completedDates', 'submissions']) &&
+        affected.hasAll(['points', 'completedDates', 'submissions']) &&
+        request.resource.data.completedDates.size() == resource.data.completedDates.size() + 1 &&
+        request.resource.data.completedDates.hasAll(resource.data.completedDates) &&
+        date is string && !resource.data.completedDates.hasAny([date]) &&
+        submissionChanges.addedKeys().size() == 1 &&
+        submissionChanges.addedKeys().hasOnly([date]) &&
+        submissionChanges.changedKeys().size() == 0 &&
+        submissionChanges.removedKeys().size() == 0 &&
+        isValidQuizSubmission(date) &&
+        request.resource.data.points == resource.data.points + request.resource.data.submissions[date].earnedPoints;
     }
 
     // 1. Halachot & Quizzes: Publicly readable for students, Admin-only write
@@ -46,15 +169,21 @@ service cloud.firestore {
       // Note: Leaderboard items should ideally be in a separate public collection.
       allow read: if true; 
       
-      // Allow creation for new registrations
-      allow create: if request.resource.data.status == 'pending';
+      // Keep pending registration public, but reject extra fields or privilege data.
+      allow create: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
+        isValidPendingRegistration(request.resource.data);
       
       // Allow updates for quiz submissions
       // Restricted to owners OR admins
-      allow update: if isAdmin() || isOwner(studentId);
+      allow update: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
+        isValidQuizProgressUpdate(studentId);
       
       // Prevent public deletion
       allow delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

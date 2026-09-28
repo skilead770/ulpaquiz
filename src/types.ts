@@ -30,6 +30,7 @@ export interface Question {
 export interface DailyHalacha {
   id: string;
   date: string; // YYYY-MM-DD
+  quizEnabled?: boolean;
   hebrewDate?: string; // e.g. "א' תשרי תשפ\"ז", "י\"ד חשון תשפ\"ז"
   title: string;
   topic: string;
@@ -40,6 +41,7 @@ export interface DailyHalacha {
 
 export interface QuizSubmission {
   date: string;
+  halachaId?: string;
   score: number; // 0 to 4
   earnedPoints: number; // 1 for participation, 2 if perfect 4/4
   submittedAt: string;

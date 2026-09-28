@@ -1,12 +1,16 @@
 import {
   collection,
   getDocs,
+  getDoc,
+  query,
+  where,
   doc,
   setDoc,
   updateDoc,
   deleteDoc,
 } from 'firebase/firestore';
-import { db } from './firebaseClient';
+import { auth, db } from './firebaseClient';
+import { getTodayInJerusalem } from './quizSchedule';
 import { SUPER_ADMIN_EMAIL, API_BASE_URL } from './config';
 import {
   Student,
@@ -114,36 +118,71 @@ async function getOrSeedFirestoreHalachot(): Promise<DailyHalacha[]> {
 
 export async function fetchStudents(): Promise<Student[]> {
   try {
+    const snap = await getDocs(collection(db, 'students'));
+    if (!snap.empty) {
+      const list: Student[] = [];
+      snap.forEach((d) => list.push(d.data() as Student));
+      return list;
+    }
+  } catch (e) {
+    console.info('[Firestore] Direct student read failed, falling back to API:', e);
+  }
+
+  try {
     const res = await fetch(API_BASE_URL + '/api/students');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for fetchStudents');
+    console.info('[API] Falling back to seeded Firestore for fetchStudents');
   }
   return getOrSeedFirestoreStudents();
 }
 
 export async function fetchHalachot(): Promise<DailyHalacha[]> {
   try {
+    const snap = await getDocs(collection(db, 'halachot'));
+    if (!snap.empty) {
+      const list: DailyHalacha[] = [];
+      snap.forEach((d) => list.push(d.data() as DailyHalacha));
+      return list;
+    }
+  } catch (e) {
+    console.info('[Firestore] Direct halacha read failed, falling back to API:', e);
+  }
+
+  try {
     const res = await fetch(API_BASE_URL + '/api/halachot');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for fetchHalachot');
+    console.info('[API] Falling back to seeded Firestore for fetchHalachot');
   }
   return getOrSeedFirestoreHalachot();
 }
 
 export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
   try {
+    const snap = await getDocs(collection(db, 'halachot'));
+    if (!snap.empty) {
+      const list: DailyHalacha[] = [];
+      snap.forEach((d) => list.push(d.data() as DailyHalacha));
+      const found = list.find((h) => h.date === date);
+      if (found) return found;
+      if (list.length > 0) return list[0];
+    }
+  } catch (e) {
+    console.info('[Firestore] Direct halacha-by-date read failed, falling back to API:', e);
+  }
+
+  try {
     const res = await fetch(API_BASE_URL + `/api/halachot/${date}`);
     if (res.ok) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for fetchHalachaByDate');
+    console.info('[API] Falling back to seeded Firestore for fetchHalachaByDate');
   }
   const halachot = await getOrSeedFirestoreHalachot();
   const found = halachot.find((h) => h.date === date);
@@ -159,24 +198,124 @@ export async function submitQuizApi(
   date: string,
   answers: Record<string, number>
 ) {
+  if (date !== getTodayInJerusalem()) {
+    throw new Error('ניתן להיבחן רק בחידון של היום');
+  }
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser?.emailVerified) {
+    throw new Error('להגשת החידון יש להתחבר תחילה באמצעות Google SSO');
+  }
+  const authHeaders = getAuthHeaders();
+  authHeaders.Authorization = `Bearer ${await firebaseUser.getIdToken()}`;
+
+  // Firestore-first write path for the scoring workflow.
+  try {
+    const halachaSnap = await getDocs(collection(db, 'halachot'));
+    const halachaList: DailyHalacha[] = [];
+    halachaSnap.forEach((d) => halachaList.push(d.data() as DailyHalacha));
+    const halacha = halachaList.find((h) => h.date === date);
+    if (!halacha) {
+      throw new Error('הלכה לא נמצאה לתאריך זה');
+    }
+    if (halacha.quizEnabled === false) {
+      throw new Error('המנהלת השביתה את החידון לתאריך זה');
+    }
+
+    const studentRef = doc(db, 'students', studentId);
+    const studentSnap = await getDoc(studentRef);
+    if (!studentSnap.exists()) {
+      throw new Error('תלמידה לא נמצאה');
+    }
+
+    const student = { ...(studentSnap.data() as Student) };
+    if (student.completedDates.includes(date)) {
+      throw new Error('כבר הגשת את החידון היומי להיום!');
+    }
+
+    let correctCount = 0;
+    halacha.questions.forEach((q) => {
+      const selectedOption = answers[q.id];
+      if (selectedOption !== undefined && Number(selectedOption) === q.correctOptionIndex) {
+        correctCount++;
+      }
+    });
+
+    const isPerfect = correctCount === 4;
+    const earnedPoints = isPerfect ? 2 : 1;
+    const previousPoints = student.points;
+    const newPoints = previousPoints + earnedPoints;
+    const submissionTime = new Date().toLocaleTimeString('he-IL', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const submission: QuizSubmission = {
+      date,
+      halachaId: halacha.id,
+      score: correctCount,
+      earnedPoints,
+      submittedAt: submissionTime,
+      answers,
+    };
+
+    student.points = newPoints;
+    student.completedDates = [...student.completedDates, date];
+    student.submissions = {
+      ...student.submissions,
+      [date]: submission,
+    };
+
+    await updateDoc(studentRef, {
+      points: student.points,
+      completedDates: student.completedDates,
+      [`submissions.${date}`]: submission,
+    });
+
+    const milestonesReached: PrizeMilestone[] = [];
+    DEFAULT_PRIZE_MILESTONES.forEach((m) => {
+      if (previousPoints < m.points && newPoints >= m.points) {
+        milestonesReached.push(m);
+      }
+    });
+
+    return {
+      success: true,
+      score: correctCount,
+      earnedPoints,
+      isPerfect,
+      previousPoints,
+      newPoints,
+      student,
+      milestonesReached,
+      message: isPerfect
+        ? 'כל הכבוד! ענית נכון על כל השאלות! צברת 2 נקודות לך, לכיתה ולשכבה!'
+        : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
+    };
+  } catch (firestoreErr) {
+    console.info('[Firestore] Direct quiz submission failed, trying legacy API:', firestoreErr);
+  }
+
   try {
     const res = await fetch(API_BASE_URL + '/api/submit-quiz', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ studentId, date, answers }),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for submitQuizApi');
+    console.info('[API] Falling back to seeded Firestore for submitQuizApi');
   }
 
-  // Client-side Firestore calculation
+  // Seeded fallback remains available.
   const halachot = await getOrSeedFirestoreHalachot();
   const halacha = halachot.find((h) => h.date === date);
   if (!halacha) {
     throw new Error('הלכה לא נמצאה לתאריך זה');
+  }
+  if (halacha.quizEnabled === false) {
+    throw new Error('המנהלת השביתה את החידון לתאריך זה');
   }
 
   const students = await getOrSeedFirestoreStudents();
@@ -200,7 +339,6 @@ export async function submitQuizApi(
 
   const isPerfect = correctCount === 4;
   const earnedPoints = isPerfect ? 2 : 1;
-
   const previousPoints = student.points;
   const newPoints = previousPoints + earnedPoints;
 
@@ -211,6 +349,7 @@ export async function submitQuizApi(
 
   const submission: QuizSubmission = {
     date,
+    halachaId: halacha.id,
     score: correctCount,
     earnedPoints,
     submittedAt: submissionTime,
@@ -226,7 +365,11 @@ export async function submitQuizApi(
     [date]: submission,
   };
 
-  await setDoc(doc(db, 'students', student.id), student);
+  await updateDoc(doc(db, 'students', student.id), {
+    points: student.points,
+    completedDates: student.completedDates,
+    [`submissions.${date}`]: submission,
+  });
 
   const milestonesReached: PrizeMilestone[] = [];
   DEFAULT_PRIZE_MILESTONES.forEach((m) => {
@@ -578,17 +721,6 @@ export async function generateAiHalachaApi(topic: string, date: string, hebrewDa
 
 export async function fetchInvitationsApi(): Promise<Invitation[]> {
   try {
-    const res = await fetch('/api/invitations', {
-      headers: getAuthHeaders(),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    }
-  } catch (e) {
-    console.info('[API] Falling back to direct Firestore for fetchInvitationsApi');
-  }
-
-  try {
     const snap = await getDocs(collection(db, 'invitations'));
     if (!snap.empty) {
       const list: Invitation[] = [];
@@ -601,8 +733,20 @@ export async function fetchInvitationsApi(): Promise<Invitation[]> {
     return INITIAL_INVITATIONS;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching invitations:', err);
-    return INITIAL_INVITATIONS;
   }
+
+  try {
+    const res = await fetch('/api/invitations', {
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to seeded Firestore for fetchInvitationsApi');
+  }
+
+  return INITIAL_INVITATIONS;
 }
 
 export async function createInvitationApi(invitationData: {
@@ -611,6 +755,42 @@ export async function createInvitationApi(invitationData: {
   maxUses: number;
   code: string;
 }) {
+  const cleanCode = invitationData.code.trim().toUpperCase();
+  const cleanClass = invitationData.className.trim();
+  const maxUses = Number(invitationData.maxUses) || 50;
+
+  try {
+    const snap = await getDocs(collection(db, 'invitations'));
+    const duplicate = snap.docs.find((d) => {
+      const item = d.data() as Invitation;
+      return item.code.trim().toUpperCase() === cleanCode;
+    });
+
+    if (duplicate) {
+      throw new Error('קוד הזמנה זה כבר קיים במערכת');
+    }
+
+    const inv: Invitation = {
+      id: `inv-${Date.now()}`,
+      code: cleanCode,
+      className: cleanClass,
+      grade: invitationData.grade,
+      maxUses,
+      usedCount: 0,
+      createdAt: new Date().toISOString().split('T')[0],
+      active: true,
+    };
+
+    await setDoc(doc(db, 'invitations', inv.id), inv);
+    const invitations = await fetchInvitationsApi();
+    return { success: true, invitation: inv, invitations };
+  } catch (e: any) {
+    if (e.message && e.message.includes('כבר קיים')) {
+      throw e;
+    }
+    console.info('[Firestore] Direct invitation creation failed, trying legacy API:', e);
+  }
+
   try {
     const res = await fetch('/api/invitations', {
       method: 'POST',
@@ -621,16 +801,15 @@ export async function createInvitationApi(invitationData: {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for createInvitationApi');
+    console.info('[API] Falling back to seeded Firestore for createInvitationApi');
   }
 
-  const cleanCode = invitationData.code.trim().toUpperCase();
   const inv: Invitation = {
     id: `inv-${Date.now()}`,
     code: cleanCode,
-    className: invitationData.className.trim(),
+    className: cleanClass,
     grade: invitationData.grade,
-    maxUses: Number(invitationData.maxUses) || 50,
+    maxUses,
     usedCount: 0,
     createdAt: new Date().toISOString().split('T')[0],
     active: true,
@@ -643,6 +822,14 @@ export async function createInvitationApi(invitationData: {
 
 export async function deleteInvitationApi(id: string) {
   try {
+    await deleteDoc(doc(db, 'invitations', id));
+    const invitations = await fetchInvitationsApi();
+    return { success: true, invitations };
+  } catch (e) {
+    console.info('[Firestore] Direct invitation delete failed, trying legacy API:', e);
+  }
+
+  try {
     const res = await fetch(`/api/invitations/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
@@ -651,15 +838,30 @@ export async function deleteInvitationApi(id: string) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for deleteInvitationApi');
+    console.info('[API] Falling back to seeded Firestore for deleteInvitationApi');
   }
 
-  await deleteDoc(doc(db, 'invitations', id));
   const invitations = await fetchInvitationsApi();
   return { success: true, invitations };
 }
 
 export async function validateInvitationCodeApi(code: string): Promise<{ valid: boolean; invitation?: Invitation; error?: string }> {
+  try {
+    const cleanCode = code.trim().toUpperCase();
+    const invitations = await fetchInvitationsApi();
+    const inv = invitations.find((i) => i.code.trim().toUpperCase() === cleanCode && i.active);
+
+    if (!inv) {
+      return { valid: false, error: 'קוד הזמנה לא קיים או שאינו פעיל' };
+    }
+    if (inv.maxUses > 0 && inv.usedCount >= inv.maxUses) {
+      return { valid: false, error: 'קוד ההזמנה הגיע למכסת השימושים המרבית' };
+    }
+    return { valid: true, invitation: inv };
+  } catch (e) {
+    console.info('[Firestore] Direct invitation validation failed, trying legacy API:', e);
+  }
+
   try {
     const res = await fetch(`/api/invitations/validate/${encodeURIComponent(code)}`);
     if (res.ok) {
@@ -669,7 +871,7 @@ export async function validateInvitationCodeApi(code: string): Promise<{ valid: 
       return data;
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for validateInvitationCodeApi');
+    console.info('[API] Falling back to seeded Firestore for validateInvitationCodeApi');
   }
 
   const invitations = await fetchInvitationsApi();
@@ -690,6 +892,35 @@ export async function checkStudentStatusApi(email: string): Promise<{
   status?: 'approved' | 'pending' | 'rejected';
   student?: Student;
 }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanUsername = cleanEmail.split('@')[0];
+
+  try {
+    const q = query(collection(db, 'students'), where('email', '==', cleanEmail));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const student = snap.docs[0].data() as Student;
+      return {
+        registered: true,
+        status: student.status || 'approved',
+        student: student.status === 'approved' ? student : undefined,
+      };
+    }
+
+    const usernameQuery = query(collection(db, 'students'), where('username', '==', cleanUsername));
+    const usernameSnap = await getDocs(usernameQuery);
+    if (!usernameSnap.empty) {
+      const student = usernameSnap.docs[0].data() as Student;
+      return {
+        registered: true,
+        status: student.status || 'approved',
+        student: student.status === 'approved' ? student : undefined,
+      };
+    }
+  } catch (e) {
+    console.info('[Firestore] Direct status check failed, falling back to API:', e);
+  }
+
   try {
     const res = await fetch('/api/auth/check-status', {
       method: 'POST',
@@ -700,13 +931,10 @@ export async function checkStudentStatusApi(email: string): Promise<{
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for checkStudentStatusApi');
+    console.info('[API] Falling back to seeded Firestore for checkStudentStatusApi');
   }
 
   const existingStudents = await getOrSeedFirestoreStudents();
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanUsername = cleanEmail.split('@')[0];
-
   const student = existingStudents.find((s) => {
     const sEmail = s.email ? s.email.trim().toLowerCase() : '';
     const sUser = s.username ? s.username.trim().toLowerCase() : '';
@@ -734,6 +962,58 @@ export async function loginByEmailApi(
   message?: string;
   manager?: Manager;
 }> {
+  const cleanEmail = email.trim().toLowerCase();
+
+  try {
+    const managerQ = query(collection(db, 'managers'), where('email', '==', cleanEmail));
+    const managerSnap = await getDocs(managerQ);
+    if (!managerSnap.empty) {
+      const manager = managerSnap.docs[0].data() as Manager;
+      return {
+        success: true,
+        isManager: true,
+        role: 'admin',
+        manager,
+        message: 'שלום מנהל המערכת!',
+      };
+    }
+  } catch (e) {
+    console.info('[Firestore] Direct manager login check failed, falling back to API:', e);
+  }
+
+  try {
+    const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
+    const studentSnap = await getDocs(studentQ);
+    if (!studentSnap.empty) {
+      const student = studentSnap.docs[0].data() as Student;
+      if (student.status === 'pending') {
+        throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
+      }
+      if (student.status === 'rejected') {
+        throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
+      }
+      return { success: true, student };
+    }
+
+    const usernameQ = query(collection(db, 'students'), where('username', '==', cleanEmail.split('@')[0]));
+    const usernameSnap = await getDocs(usernameQ);
+    if (!usernameSnap.empty) {
+      const student = usernameSnap.docs[0].data() as Student;
+      if (student.status === 'pending') {
+        throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
+      }
+      if (student.status === 'rejected') {
+        throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
+      }
+      return { success: true, student };
+    }
+  } catch (e: any) {
+    if (e.message && (e.message.includes('לא נמצאה תלמידה') || e.message.includes('ממתינה לאישור') || e.message.includes('נדחתה'))) {
+      throw e;
+    }
+    console.info('[Firestore] Direct student login check failed, falling back to API:', e);
+  }
+
   try {
     const res = await fetch('/api/auth/login-by-email', {
       method: 'POST',
@@ -750,10 +1030,9 @@ export async function loginByEmailApi(
     if (e.message && (e.message.includes('לא נמצאה תלמידה') || e.message.includes('ממתינה לאישור') || e.message.includes('נדחתה'))) {
       throw e;
     }
-    console.info('[API] Falling back to direct Firestore for loginByEmailApi');
+    console.info('[API] Falling back to seeded Firestore for loginByEmailApi');
   }
 
-  const cleanEmail = email.trim().toLowerCase();
   if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return {
       success: true,
@@ -804,6 +1083,94 @@ export async function registerStudentApi(studentData: {
   message: string;
   student?: Student;
 }> {
+  const cleanEmail = (studentData.email || studentData.username || '').trim().toLowerCase();
+  const effectiveEmail = cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@gmail.com`;
+
+  try {
+    const existingStudents = await getOrSeedFirestoreStudents();
+    const existing = existingStudents.find((s) => {
+      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
+      const sUser = s.username ? s.username.trim().toLowerCase() : '';
+      return sEmail === effectiveEmail || sUser === effectiveEmail || sUser === cleanEmail.split('@')[0];
+    });
+
+    if (existing) {
+      if (existing.status === 'approved') {
+        return {
+          success: true,
+          status: 'approved',
+          autoApproved: true,
+          message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+          student: existing,
+        };
+      }
+      if (existing.status === 'pending') {
+        return {
+          success: true,
+          status: 'pending',
+          autoApproved: false,
+          message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+          student: existing,
+        };
+      }
+      throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
+    }
+
+    const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
+    let finalUsername = baseUser;
+    let counter = 1;
+    while (existingStudents.some((s) => s.username.toLowerCase() === finalUsername.toLowerCase())) {
+      finalUsername = `${baseUser}${counter++}`;
+    }
+
+    let matchedInvitation: Invitation | undefined;
+    if (studentData.invitationCode) {
+      const invitationSnap = await getDocs(collection(db, 'invitations'));
+      const invDoc = invitationSnap.docs.find((d) => {
+        const item = d.data() as Invitation;
+        return item.code.trim().toUpperCase() === studentData.invitationCode!.trim().toUpperCase() && item.active;
+      });
+
+      if (invDoc) {
+        const item = invDoc.data() as Invitation;
+        if (item.maxUses > 0 && item.usedCount >= item.maxUses) {
+          throw new Error('קוד ההזמנה הגיע למכסת השימושים המרבית');
+        }
+        matchedInvitation = { ...item, usedCount: item.usedCount + 1 };
+        await setDoc(doc(db, 'invitations', invDoc.id), matchedInvitation);
+      }
+    }
+
+    const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
+    const derivedGrade = inferGradeFromClass(chosenClass);
+    const newStudent: Student = {
+      id: `s-reg-${Date.now()}`,
+      fullName: studentData.fullName.trim(),
+      className: chosenClass,
+      grade: derivedGrade,
+      username: finalUsername,
+      email: effectiveEmail,
+      points: 0,
+      completedDates: [],
+      submissions: {},
+      status: 'pending',
+      registeredAt: new Date().toISOString(),
+      invitationCode: studentData.invitationCode ? studentData.invitationCode.trim().toUpperCase() : undefined,
+    };
+
+    await setDoc(doc(db, 'students', newStudent.id), newStudent);
+
+    return {
+      success: true,
+      status: 'pending',
+      autoApproved: false,
+      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
+      student: newStudent,
+    };
+  } catch (firestoreErr: any) {
+    console.info('[Firestore] Direct registration failed, falling back to API:', firestoreErr);
+  }
+
   try {
     const res = await fetch('/api/register', {
       method: 'POST',
@@ -820,14 +1187,10 @@ export async function registerStudentApi(studentData: {
     if (e.message && (e.message.includes('Gmail') || e.message.includes('שם מלא'))) {
       throw e;
     }
-    console.info('[API] Falling back to direct Firestore for registerStudentApi');
+    console.info('[API] Falling back to seeded Firestore for registerStudentApi');
   }
 
   const existingStudents = await getOrSeedFirestoreStudents();
-  const cleanEmail = (studentData.email || studentData.username || '').trim().toLowerCase();
-  const effectiveEmail = cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@gmail.com`;
-
-  // If already exists, return current status
   const existing = existingStudents.find((s) => {
     const sEmail = s.email ? s.email.trim().toLowerCase() : '';
     const sUser = s.username ? s.username.trim().toLowerCase() : '';
@@ -843,7 +1206,8 @@ export async function registerStudentApi(studentData: {
         message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
         student: existing,
       };
-    } else if (existing.status === 'pending') {
+    }
+    if (existing.status === 'pending') {
       return {
         success: true,
         status: 'pending',
@@ -851,9 +1215,8 @@ export async function registerStudentApi(studentData: {
         message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
         student: existing,
       };
-    } else {
-      throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
     }
+    throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
   }
 
   const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
@@ -873,7 +1236,6 @@ export async function registerStudentApi(studentData: {
     }
   }
 
-  // Pending admin approval required!
   const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
   const derivedGrade = inferGradeFromClass(chosenClass);
 
@@ -905,6 +1267,14 @@ export async function registerStudentApi(studentData: {
 
 export async function approveStudentApi(id: string) {
   try {
+    await updateDoc(doc(db, 'students', id), { status: 'approved' });
+    const students = await getOrSeedFirestoreStudents();
+    return { success: true, students };
+  } catch (e) {
+    console.info('[Firestore] Direct approval failed, trying legacy API:', e);
+  }
+
+  try {
     const res = await fetch(`/api/students/${id}/approve`, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -913,7 +1283,7 @@ export async function approveStudentApi(id: string) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for approveStudentApi');
+    console.info('[API] Falling back to seeded Firestore for approveStudentApi');
   }
 
   await updateDoc(doc(db, 'students', id), { status: 'approved' });
@@ -923,6 +1293,14 @@ export async function approveStudentApi(id: string) {
 
 export async function rejectStudentApi(id: string) {
   try {
+    await updateDoc(doc(db, 'students', id), { status: 'rejected' });
+    const students = await getOrSeedFirestoreStudents();
+    return { success: true, students };
+  } catch (e) {
+    console.info('[Firestore] Direct rejection failed, trying legacy API:', e);
+  }
+
+  try {
     const res = await fetch(`/api/students/${id}/reject`, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -931,7 +1309,7 @@ export async function rejectStudentApi(id: string) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for rejectStudentApi');
+    console.info('[API] Falling back to seeded Firestore for rejectStudentApi');
   }
 
   await updateDoc(doc(db, 'students', id), { status: 'rejected' });
@@ -965,17 +1343,6 @@ export async function resetDemoApi() {
 
 export async function fetchManagersApi(): Promise<Manager[]> {
   try {
-    const res = await fetch('/api/managers', {
-      headers: getAuthHeaders(),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    }
-  } catch (e) {
-    console.info('[API] Falling back to Firestore for fetchManagersApi');
-  }
-
-  try {
     const snap = await getDocs(collection(db, 'managers'));
     if (!snap.empty) {
       const list: Manager[] = [];
@@ -985,9 +1352,26 @@ export async function fetchManagersApi(): Promise<Manager[]> {
       }
       return list;
     }
+
+    if (INITIAL_MANAGERS.length) {
+      await setDoc(doc(db, 'managers', 'super_admin'), INITIAL_MANAGERS[0]);
+    }
+    return INITIAL_MANAGERS;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching managers:', err);
   }
+
+  try {
+    const res = await fetch('/api/managers', {
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+  } catch (e) {
+    console.info('[API] Falling back to seeded Firestore for fetchManagersApi');
+  }
+
   return INITIAL_MANAGERS;
 }
 
@@ -995,6 +1379,35 @@ export async function addManagerApi(
   email: string,
   name: string
 ): Promise<{ success: boolean; managers: Manager[] }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail.includes('@')) {
+    throw new Error('נא להזין כתובת Gmail תקינה');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, 'managers'));
+    const exists = snap.docs.some((d) => (d.data() as Manager).email.toLowerCase() === cleanEmail);
+    if (exists) {
+      throw new Error('מנהל זה כבר רשום במערכת');
+    }
+
+    const newMgr: Manager = {
+      email: cleanEmail,
+      name: name.trim() || cleanEmail.split('@')[0],
+      role: 'admin',
+      addedAt: new Date().toISOString(),
+    };
+    const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
+    await setDoc(doc(db, 'managers', safeId), newMgr);
+    const managers = await fetchManagersApi();
+    return { success: true, managers };
+  } catch (e: any) {
+    if (e.message && (e.message.includes('Gmail') || e.message.includes('כבר רשום'))) {
+      throw e;
+    }
+    console.info('[Firestore] Direct manager creation failed, trying legacy API:', e);
+  }
+
   try {
     const res = await fetch('/api/managers', {
       method: 'POST',
@@ -1011,10 +1424,9 @@ export async function addManagerApi(
     if (e.message && (e.message.includes('Gmail') || e.message.includes('מנהל זה כבר רשום'))) {
       throw e;
     }
-    console.info('[API] Falling back to Firestore for addManagerApi');
+    console.info('[API] Falling back to seeded Firestore for addManagerApi');
   }
 
-  const cleanEmail = email.trim().toLowerCase();
   const newMgr: Manager = {
     email: cleanEmail,
     name: name.trim() || cleanEmail.split('@')[0],
@@ -1030,6 +1442,23 @@ export async function addManagerApi(
 export async function deleteManagerApi(
   email: string
 ): Promise<{ success: boolean; managers: Manager[] }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    throw new Error('לא ניתן למחוק את מנהל המערכת הראשי');
+  }
+
+  try {
+    const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
+    await deleteDoc(doc(db, 'managers', safeId));
+    const managers = await fetchManagersApi();
+    return { success: true, managers };
+  } catch (e: any) {
+    if (e.message && e.message.includes('לא ניתן למחוק')) {
+      throw e;
+    }
+    console.info('[Firestore] Direct manager delete failed, trying legacy API:', e);
+  }
+
   try {
     const res = await fetch(`/api/managers/${encodeURIComponent(email)}`, {
       method: 'DELETE',
@@ -1045,10 +1474,10 @@ export async function deleteManagerApi(
     if (e.message && e.message.includes('לא ניתן למחוק')) {
       throw e;
     }
-    console.info('[API] Falling back to Firestore for deleteManagerApi');
+    console.info('[API] Falling back to seeded Firestore for deleteManagerApi');
   }
 
-  const safeId = email.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+  const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
   await deleteDoc(doc(db, 'managers', safeId));
   const managers = await fetchManagersApi();
   return { success: true, managers };
@@ -1059,18 +1488,6 @@ export async function deleteManagerApi(
 // ==========================================
 
 export async function fetchClassesApi(): Promise<string[]> {
-  try {
-    const res = await fetch('/api/classes');
-    if (res.ok) {
-      const data = await parseJsonResponse(res);
-      if (Array.isArray(data.classes) && data.classes.length > 0) {
-        return data.classes;
-      }
-    }
-  } catch (e) {
-    console.info('[API] Falling back to Firestore for fetchClassesApi');
-  }
-
   try {
     const snap = await getDocs(collection(db, 'settings'));
     let found: string[] | null = null;
@@ -1083,8 +1500,23 @@ export async function fetchClassesApi(): Promise<string[]> {
       }
     });
     if (found) return found;
+
+    await setDoc(doc(db, 'settings', 'classes'), { list: DEFAULT_CLASSES });
+    return DEFAULT_CLASSES;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
+  }
+
+  try {
+    const res = await fetch('/api/classes');
+    if (res.ok) {
+      const data = await parseJsonResponse(res);
+      if (Array.isArray(data.classes) && data.classes.length > 0) {
+        return data.classes;
+      }
+    }
+  } catch (e) {
+    console.info('[API] Falling back to seeded Firestore for fetchClassesApi');
   }
 
   return DEFAULT_CLASSES;
@@ -1093,6 +1525,18 @@ export async function fetchClassesApi(): Promise<string[]> {
 export async function addClassApi(name: string): Promise<string[]> {
   const clean = name.trim();
   if (!clean) throw new Error('נא להזין שם כיתה');
+
+  try {
+    const current = await fetchClassesApi();
+    if (!current.includes(clean)) {
+      const updated = [...current, clean];
+      await setDoc(doc(db, 'settings', 'classes'), { list: updated });
+      return updated;
+    }
+    return current;
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error saving classes:', err);
+  }
 
   try {
     const res = await fetch('/api/classes', {
@@ -1105,17 +1549,13 @@ export async function addClassApi(name: string): Promise<string[]> {
       return data.classes;
     }
   } catch (e) {
-    console.info('[API] Falling back to Firestore for addClassApi');
+    console.info('[API] Falling back to seeded Firestore for addClassApi');
   }
 
   const current = await fetchClassesApi();
   if (!current.includes(clean)) {
     const updated = [...current, clean];
-    try {
-      await setDoc(doc(db, 'settings', 'classes'), { list: updated });
-    } catch (err) {
-      console.warn('[Firestore Fallback] Error saving classes:', err);
-    }
+    await setDoc(doc(db, 'settings', 'classes'), { list: updated });
     return updated;
   }
   return current;
@@ -1123,6 +1563,16 @@ export async function addClassApi(name: string): Promise<string[]> {
 
 export async function deleteClassApi(name: string): Promise<string[]> {
   const clean = name.trim();
+
+  try {
+    const current = await fetchClassesApi();
+    const updated = current.filter((c) => c !== clean);
+    await setDoc(doc(db, 'settings', 'classes'), { list: updated });
+    return updated;
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error deleting class:', err);
+  }
+
   try {
     const res = await fetch(`/api/classes/${encodeURIComponent(clean)}`, {
       method: 'DELETE',
@@ -1133,20 +1583,23 @@ export async function deleteClassApi(name: string): Promise<string[]> {
       return data.classes;
     }
   } catch (e) {
-    console.info('[API] Falling back to Firestore for deleteClassApi');
+    console.info('[API] Falling back to seeded Firestore for deleteClassApi');
   }
 
   const current = await fetchClassesApi();
   const updated = current.filter((c) => c !== clean);
-  try {
-    await setDoc(doc(db, 'settings', 'classes'), { list: updated });
-  } catch (err) {
-    console.warn('[Firestore Fallback] Error deleting class:', err);
-  }
+  await setDoc(doc(db, 'settings', 'classes'), { list: updated });
   return updated;
 }
 
 export async function updateClassesApi(classes: string[]): Promise<string[]> {
+  try {
+    await setDoc(doc(db, 'settings', 'classes'), { list: classes });
+    return classes;
+  } catch (err) {
+    console.warn('[Firestore Fallback] Error updating classes:', err);
+  }
+
   try {
     const res = await fetch('/api/classes', {
       method: 'PUT',
@@ -1158,13 +1611,9 @@ export async function updateClassesApi(classes: string[]): Promise<string[]> {
       return data.classes;
     }
   } catch (e) {
-    console.info('[API] Falling back to Firestore for updateClassesApi');
+    console.info('[API] Falling back to seeded Firestore for updateClassesApi');
   }
 
-  try {
-    await setDoc(doc(db, 'settings', 'classes'), { list: classes });
-  } catch (err) {
-    console.warn('[Firestore Fallback] Error updating classes:', err);
-  }
+  await setDoc(doc(db, 'settings', 'classes'), { list: classes });
   return classes;
 }
