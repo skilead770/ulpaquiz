@@ -66,7 +66,7 @@ interface AdminPanelProps {
   halachot: DailyHalacha[];
   prizeReports: PrizeReportItem[];
   onRefreshData: () => void;
-  onManagerQuiz: () => void;
+  onManagerQuiz: () => Promise<void>;
 }
 
 const hebrewWeekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -332,8 +332,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [managers, setManagers] = useState<Manager[]>([]);
   const [newManagerEmail, setNewManagerEmail] = useState('');
   const [newManagerName, setNewManagerName] = useState('');
+  const [selectedManagerStudentId, setSelectedManagerStudentId] = useState('');
   const [isAddingManager, setIsAddingManager] = useState(false);
   const [managerMsg, setManagerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isStartingManagerQuiz, setIsStartingManagerQuiz] = useState(false);
+  const [managerQuizError, setManagerQuizError] = useState<string | null>(null);
+
+  const promotableStudents = students
+    .filter((student) =>
+      student.status !== 'pending' &&
+      student.status !== 'rejected' &&
+      !student.managerParticipation &&
+      Boolean(student.email?.match(/@(?:gmail|googlemail)\.com$/i)) &&
+      !managers.some((manager) => manager.email.toLowerCase() === student.email?.toLowerCase())
+    )
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'));
 
   React.useEffect(() => {
     fetchManagersApi().then((list) => setManagers(list));
@@ -357,6 +370,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handlePromoteExistingStudent = async () => {
+    const student = promotableStudents.find((candidate) => candidate.id === selectedManagerStudentId);
+    if (!student?.email) return;
+
+    setIsAddingManager(true);
+    setManagerMsg(null);
+    try {
+      const res = await addManagerApi(student.email, student.fullName);
+      setManagers(res.managers);
+      setSelectedManagerStudentId('');
+      setManagerMsg({ type: 'success', text: `${student.fullName} נוספה כמנהלת מערכת.` });
+    } catch (err: any) {
+      setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהוספת מנהלת' });
+    } finally {
+      setIsAddingManager(false);
+    }
+  };
+
   const handleDeleteManager = async (email: string) => {
     if (confirm(`האם להסיר את הרשאות הניהול מכתובת ${email}?`)) {
       try {
@@ -366,6 +397,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       } catch (err: any) {
         setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהסרת מנהל' });
       }
+    }
+  };
+
+  const handleStartManagerQuiz = async () => {
+    setIsStartingManagerQuiz(true);
+    setManagerQuizError(null);
+    try {
+      await onManagerQuiz();
+    } catch (err: any) {
+      setManagerQuizError(err?.message || 'לא ניתן לפתוח את החידון');
+    } finally {
+      setIsStartingManagerQuiz(false);
     }
   };
 
@@ -379,14 +422,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setTimeout(() => setIsRefreshing(false), 400);
     }
   };
-
-  React.useEffect(() => {
-    // Auto-poll every 5 seconds so newly registered students appear automatically without manual reload
-    const interval = setInterval(() => {
-      onRefreshData();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   React.useEffect(() => {
     if (activeAdminTab === 'students') {
@@ -901,11 +936,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
             <button
-              onClick={onManagerQuiz}
-              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white border border-emerald-400/40 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+              onClick={handleStartManagerQuiz}
+              disabled={isStartingManagerQuiz}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white border border-emerald-400/40 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-wait"
             >
-              <ClipboardCheck className="w-3.5 h-3.5" />
-              <span>השתתפות בחידון היומי</span>
+              {isStartingManagerQuiz ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ClipboardCheck className="w-3.5 h-3.5" />
+              )}
+              <span>{isStartingManagerQuiz ? 'פותח את החידון...' : 'השתתפות בחידון היומי'}</span>
             </button>
             <button
               onClick={handleManualRefresh}
@@ -918,6 +958,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
           </div>
         </div>
+
+        {managerQuizError && (
+          <p role="alert" className="rounded-xl border border-rose-300/50 bg-rose-950/40 px-3 py-2 text-xs font-bold text-rose-100">
+            {managerQuizError}
+          </p>
+        )}
 
         {/* Admin Subtabs */}
         <div className="w-full overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
@@ -2551,6 +2597,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
             </form>
+
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <div>
+                <h4 className="text-xs font-extrabold text-slate-800">הוספה מתוך משתמשות מאושרות</h4>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  בחירת משתמשת קיימת תעניק לכתובת ה-Gmail שלה הרשאות מנהלת.
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={selectedManagerStudentId}
+                  onChange={(event) => setSelectedManagerStudentId(event.target.value)}
+                  disabled={isAddingManager || promotableStudents.length === 0}
+                  className="min-w-0 flex-1 p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden disabled:opacity-60"
+                >
+                  <option value="">{promotableStudents.length ? 'בחרי משתמשת מאושרת' : 'אין משתמשות מאושרות זמינות'}</option>
+                  {promotableStudents.map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.fullName} - {student.className} ({student.email})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handlePromoteExistingStudent}
+                  disabled={isAddingManager || !selectedManagerStudentId}
+                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>{isAddingManager ? 'מוסיף מנהלת...' : 'הוסף כמנהלת'}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Current Managers List */}

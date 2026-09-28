@@ -186,7 +186,7 @@ export async function getOrCreateManagerParticipant(): Promise<Student> {
     };
     transaction.set(participantRef, participant);
     return participant;
-  });
+  }, { maxAttempts: 1 });
 }
 
 export async function fetchHalachot(): Promise<DailyHalacha[]> {

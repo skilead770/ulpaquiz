@@ -138,22 +138,17 @@ export default function App() {
   const handleManagerQuiz = async () => {
     const todaysHalacha = halachot.find((halacha) => halacha.date === todayDate);
     if (!todaysHalacha || todaysHalacha.quizEnabled === false) {
-      alert('אין חידון זמין להיום');
-      return;
+      throw new Error('אין חידון זמין להיום. יש לוודא שקיימת הלכה פעילה לתאריך של היום.');
     }
 
-    try {
-      const participant = await getOrCreateManagerParticipant();
-      if (participant.completedDates.includes(todayDate)) {
-        alert('כבר השתתפת בחידון היומי');
-        return;
-      }
-      setSelectedDate(todayDate);
-      setManagerParticipant(participant);
-      setShowQuizModal(true);
-    } catch (error: any) {
-      alert(error?.message || 'לא ניתן לפתוח את החידון');
+    const participant = await getOrCreateManagerParticipant();
+    if (participant.completedDates.includes(todayDate)) {
+      throw new Error('כבר השתתפת בחידון היומי.');
     }
+
+    setSelectedDate(todayDate);
+    setManagerParticipant(participant);
+    setShowQuizModal(true);
   };
 
   if (isLoading) {
