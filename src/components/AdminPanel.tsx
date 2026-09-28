@@ -858,7 +858,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
         if (text.trim().startsWith('<')) {
-          throw new Error('השרת החזיר דף HTML במקום נתונים (שגיאת ניתוב או שרת כבוי). ודאי ששרת ה-Backend שלך פועל (למשל בפורט 5000/render) ושהגדרת את API_BASE_URL בצורה תקינה.');
+          throw new Error('השרת החזיר דף HTML במקום נתונים. הדבר מעיד בדרך כלל על כך שפונקציית ה-Firebase Cloud Function אינה פועלת, או שחוקי ה-rewrites בקובץ firebase.json אינם מוגדרים כראוי. אנא ודאי שהפריסה ל-Firebase Functions הושלמה בהצלחה.');
         }
         throw new Error(text || 'התגובה שהתקבלה מהשרת אינה בפורמט JSON תקין');
       }
