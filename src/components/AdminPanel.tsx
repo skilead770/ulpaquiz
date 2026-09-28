@@ -846,31 +846,83 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsGeneratingQuestions(true);
     setQuestionsAiError(null);
     try {
-      const response = await fetch(`${API_BASE_URL || ''}/api/generate-questions`, {
+      let apiKey = localStorage.getItem('ULPAQUIZ_GEMINI_KEY');
+      if (!apiKey) {
+        const userKey = prompt(
+          "אנא הזן את מפתח ה-Gemini API החופשי שלך.\n(ניתן לקבל מפתח בחינם לחלוטין ללא כרטיס אשראי ב-Google AI Studio).\nהמפתח יישמר באופן מאובטח בדפדפן שלך בלבד:"
+        );
+        if (userKey && userKey.trim()) {
+          localStorage.setItem('ULPAQUIZ_GEMINI_KEY', userKey.trim());
+          apiKey = userKey.trim();
+        } else {
+          throw new Error('פעולת ה-AI בוטלה - לא הוזן מפתח API.');
+        }
+      }
+
+      const promptText = `Based on the following Jewish law (Halacha) content, generate exactly 4 multiple-choice questions (American questions) in Hebrew suitable for high school girls (Ulpana students).
+Provide the output in JSON format ONLY, matching this structure:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Question 1 text?",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correctOptionIndex": 0,
+      "explanation": "Explanation for correct option in Hebrew..."
+    },
+    ...
+  ]
+}
+Make sure correctOptionIndex is an integer between 0 and 3. The language must be clear, warm, and highly educational Hebrew. Do not wrap the JSON in markdown code blocks.
+
+Halacha Content:
+"""
+${targetHalacha.content}
+"""`;
+
+          const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 3, delayMs = 1500): Promise<Response> => {
+            for (let i = 0; i < maxRetries; i++) {
+              try {
+                const res = await fetch(url, options);
+                if ((res.status === 503 || res.status === 429) && i < maxRetries - 1) {
+                  await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, i) + Math.random() * 500));
+                  continue;
+                }
+                return res;
+              } catch (err) {
+                if (i === maxRetries - 1) throw err;
+                await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, i) + Math.random() * 500));
+              }
+            }
+            return fetch(url, options);
+          };
+
+          const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content: targetHalacha.content }),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { responseMimeType: 'application/json' }
+        }),
       });
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        if (text.trim().startsWith('<')) {
-          throw new Error('השרת החזיר דף HTML במקום נתונים. הדבר מעיד בדרך כלל על כך שפונקציית ה-Firebase Cloud Function אינה פועלת, או שחוקי ה-rewrites בקובץ firebase.json אינם מוגדרים כראוי. אנא ודאי שהפריסה ל-Firebase Functions הושלמה בהצלחה.');
-        }
-        throw new Error(text || 'התגובה שהתקבלה מהשרת אינה בפורמט JSON תקין');
-      }
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(errText || 'שגיאה בתקשורת עם השרת ליצירת השאלות');
+        if (response.status === 400 || response.status === 403) {
+          localStorage.removeItem('ULPAQUIZ_GEMINI_KEY');
+          throw new Error('מפתח ה-API שהוזן אינו תקין או פג תוקף. המפתח הוסר, אנא לחץ שוב והזן מפתח תקין.');
+        }
+        throw new Error(errText || 'שגיאה בתקשורת ישירה מול שרתי Google Gemini');
       }
 
       const data = await response.json();
-      if (data.questions && data.questions.length === 4) {
-        const mappedQuestions = data.questions.map((q: any, idx: number) => ({
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsedData = JSON.parse(rawText.trim());
+
+      if (parsedData.questions && parsedData.questions.length === 4) {
+        const mappedQuestions = parsedData.questions.map((q: any, idx: number) => ({
           id: q.id || `q${idx + 1}`,
           text: q.text,
           options: q.options,
