@@ -9,6 +9,7 @@ import {
   updateDoc,
   deleteDoc,
   runTransaction,
+  deleteField,
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
 import { getTodayInJerusalem } from './quizSchedule';
@@ -246,7 +247,8 @@ export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
 export async function submitQuizApi(
   studentId: string,
   date: string,
-  answers: Record<string, number>
+  answers: Record<string, number>,
+  confirmedStudy: boolean = false
 ) {
   if (date !== getTodayInJerusalem()) {
     throw new Error('ניתן להיבחן רק בחידון של היום');
@@ -291,7 +293,10 @@ export async function submitQuizApi(
     });
 
     const isPerfect = correctCount === 4;
-    const earnedPoints = isPerfect ? 2 : 1;
+    const studyPoints = confirmedStudy ? 10 : 0;
+    const questionPoints = correctCount * 10;
+    const bonusPoints = isPerfect ? 20 : 0;
+    const earnedPoints = studyPoints + questionPoints + bonusPoints;
     const previousPoints = student.points;
     const newPoints = previousPoints + earnedPoints;
     const submissionTime = new Date().toLocaleTimeString('he-IL', {
@@ -306,6 +311,7 @@ export async function submitQuizApi(
       earnedPoints,
       submittedAt: submissionTime,
       answers,
+      ...(confirmedStudy ? { confirmedStudy: true } : {}),
     };
 
     student.points = newPoints;
@@ -338,7 +344,7 @@ export async function submitQuizApi(
       student,
       milestonesReached,
       message: isPerfect
-        ? 'כל הכבוד! ענית נכון על כל השאלות! צברת 2 נקודות לך, לכיתה ולשכבה!'
+        ? `אלופה! ענית נכון על כל 4 השאלות וזכית בבונוס מושלם! צברת ${earnedPoints} נקודות!`
         : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
     };
   } catch (firestoreErr) {
@@ -349,7 +355,7 @@ export async function submitQuizApi(
     const res = await fetch(API_BASE_URL + '/api/submit-quiz', {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ studentId, date, answers }),
+      body: JSON.stringify({ studentId, date, answers, confirmedStudy }),
     });
     if (res.ok) {
       return await parseJsonResponse(res);
@@ -388,7 +394,10 @@ export async function submitQuizApi(
   });
 
   const isPerfect = correctCount === 4;
-  const earnedPoints = isPerfect ? 2 : 1;
+  const studyPoints = confirmedStudy ? 10 : 0;
+  const questionPoints = correctCount * 10;
+  const bonusPoints = isPerfect ? 20 : 0;
+  const earnedPoints = studyPoints + questionPoints + bonusPoints;
   const previousPoints = student.points;
   const newPoints = previousPoints + earnedPoints;
 
@@ -404,6 +413,7 @@ export async function submitQuizApi(
     earnedPoints,
     submittedAt: submissionTime,
     answers,
+    ...(confirmedStudy ? { confirmedStudy: true } : {}),
   };
 
   student.points = newPoints;
@@ -438,7 +448,7 @@ export async function submitQuizApi(
     student,
     milestonesReached,
     message: isPerfect
-      ? 'כל הכבוד! ענית נכון על כל השאלות! צברת 2 נקודות לך, לכיתה ולשכבה!'
+      ? `אלופה! ענית נכון על כל 4 השאלות וזכית בבונוס מושלם! צברת ${earnedPoints} נקודות!`
       : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
   };
 }
@@ -1371,6 +1381,67 @@ export async function rejectStudentApi(id: string) {
   await updateDoc(doc(db, 'students', id), { status: 'rejected' });
   const students = await getOrSeedFirestoreStudents();
   return { success: true, students };
+}
+
+export async function resetStudentQuizSubmissionApi(
+  studentId: string,
+  date: string
+): Promise<{ success: boolean; student: Student; students: Student[] }> {
+  try {
+    const studentRef = doc(db, 'students', studentId);
+
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(studentRef);
+      if (!snap.exists()) {
+        throw new Error('תלמידה לא נמצאה');
+      }
+      const student = snap.data() as Student;
+      const submission = student.submissions?.[date];
+
+      if (!submission) {
+        console.warn(`No submission found for student ${studentId} on date ${date} to reset.`);
+        return;
+      }
+
+      const pointsToDeduct = submission.earnedPoints || 0;
+      const newPoints = Math.max(0, (student.points || 0) - pointsToDeduct);
+      const updatedCompletedDates = (student.completedDates || []).filter((d) => d !== date);
+
+      transaction.update(studentRef, {
+        points: newPoints,
+        completedDates: updatedCompletedDates,
+        [`submissions.${date}`]: deleteField(),
+      });
+    });
+
+    const updatedStudentSnap = await getDoc(studentRef);
+    if (!updatedStudentSnap.exists()) {
+      throw new Error('Failed to refetch student after reset.');
+    }
+    const updatedStudent = updatedStudentSnap.data() as Student;
+    const allStudents = await fetchStudents();
+
+    return { success: true, student: updatedStudent, students: allStudents };
+  } catch (firestoreErr: any) {
+    console.info('[Firestore] Direct reset submission failed, falling back to API:', firestoreErr);
+  }
+
+  // Fallback to server API if direct Firestore write fails
+  try {
+    const res = await fetch(API_BASE_URL + `/api/students/${studentId}/reset-quiz`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ date }),
+    });
+    if (res.ok) {
+      return await parseJsonResponse(res);
+    }
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'שגיאה באיפוס החידון מהשרת');
+  } catch (apiErr: any) {
+    console.error('[API] Reset submission failed via API as well:', apiErr);
+    throw new Error(`איפוס החידון נכשל. ${apiErr.message}`);
+  }
 }
 
 export async function resetDemoApi() {

@@ -103,10 +103,14 @@ service cloud.firestore {
       let submission = request.resource.data.submissions[date];
       let quizPath = /databases/$(database)/documents/halachot/$(submission.halachaId);
       let quiz = get(quizPath).data;
+      let studyPoints = ('confirmedStudy' in submission && submission.confirmedStudy == true) ? 10 : 0;
+      let questionPoints = submission.score * 10;
+      let bonusPoints = (submission.score == 4 ? 20 : 0);
+      let expectedEarned = studyPoints + questionPoints + bonusPoints;
 
       return isCurrentJerusalemDate(date) &&
         submission is map &&
-        submission.keys().hasOnly(['date', 'halachaId', 'score', 'earnedPoints', 'submittedAt', 'answers']) &&
+        submission.keys().hasOnly(['date', 'halachaId', 'score', 'earnedPoints', 'submittedAt', 'answers', 'confirmedStudy']) &&
         submission.date == date &&
         submission.halachaId is string && submission.halachaId.size() <= 150 &&
         quiz.date == date &&
@@ -114,7 +118,8 @@ service cloud.firestore {
         quiz.questions is list && quiz.questions.size() == 4 &&
         submission.score is int && submission.score >= 0 && submission.score <= 4 &&
         submission.earnedPoints is int &&
-        submission.earnedPoints == (submission.score == 4 ? 2 : 1) &&
+        (submission.earnedPoints == expectedEarned || submission.earnedPoints == (submission.score == 4 ? 2 : 1)) &&
+        (!('confirmedStudy' in submission) || submission.confirmedStudy is bool) &&
         submission.submittedAt is string && submission.submittedAt.size() <= 32 &&
         hasValidQuizAnswers(quiz.questions, submission.answers, submission.score);
     }

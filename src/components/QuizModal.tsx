@@ -32,6 +32,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
 }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
+  const [confirmedStudy, setConfirmedStudy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
     earnedPoints: number;
     isPerfect: boolean;
     message: string;
+    confirmedStudy: boolean;
   } | null>(null);
 
   const questions = halacha.questions;
@@ -75,7 +77,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      const res = await submitQuizApi(student.id, halacha.date, selectedAnswers);
+      const res = await submitQuizApi(student.id, halacha.date, selectedAnswers, confirmedStudy);
 
       if (res.isPerfect) {
         // Trigger festive confetti for 4/4 score!
@@ -92,6 +94,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
         earnedPoints: res.earnedPoints,
         isPerfect: res.isPerfect,
         message: res.message,
+        confirmedStudy,
       });
 
       // Notify parent to refresh student state & trigger potential milestone alerts
@@ -135,6 +138,43 @@ export const QuizModal: React.FC<QuizModalProps> = ({
         {/* Content Body */}
         {!quizResult ? (
           <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto flex-1">
+            {/* "למדתי בשמחה" Confirmation Banner */}
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/90 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+                    confirmedStudy
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {confirmedStudy ? '✓' : '📖'}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-bold text-emerald-950 truncate">
+                    לימוד ההלכה היומית
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-emerald-800/90 font-medium truncate">
+                    {confirmedStudy
+                      ? 'אישרת שלמדת בשמחה (+10 נקודות!)'
+                      : 'קראת את ההלכה? לחצי לקבלת 10 נקודות'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setConfirmedStudy((prev) => !prev)}
+                className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-xs ${
+                  confirmedStudy
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100 active:scale-95'
+                }`}
+              >
+                {confirmedStudy ? '✓ למדתי בשמחה!' : 'למדתי בשמחה ✨'}
+              </button>
+            </div>
+
             {/* Question Progress Bar */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-amber-900">
@@ -274,6 +314,19 @@ export const QuizModal: React.FC<QuizModalProps> = ({
               </p>
             </div>
 
+            {/* 4/4 Bonus Celebration Message */}
+            {quizResult.isPerfect && (
+              <div className="bg-gradient-to-r from-amber-100 via-yellow-100 to-amber-100 border-2 border-amber-400 p-3.5 sm:p-4 rounded-2xl shadow-sm text-center">
+                <div className="flex items-center justify-center gap-1.5 text-amber-900 font-black text-sm sm:text-base">
+                  <Crown className="w-5 h-5 text-amber-600" />
+                  <span>בונוס מושלם: +20 נקודות על ציון 4/4!</span>
+                </div>
+                <p className="text-xs text-amber-800 font-semibold mt-1">
+                  אלופה אמיתית! ענית נכון על כל השאלות וזכית בתוספת נקודות מיוחדת!
+                </p>
+              </div>
+            )}
+
             {/* Score Breakout */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 grid grid-cols-2 gap-3 sm:gap-4 text-center">
               <div>
@@ -288,6 +341,30 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   +{quizResult.earnedPoints} נק'
                 </p>
               </div>
+            </div>
+
+            {/* Points Breakdown List */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 sm:p-4 text-right text-xs space-y-1.5 font-medium text-slate-700">
+              <div className="flex justify-between items-center text-slate-800 font-bold border-b border-slate-200 pb-1.5 mb-1.5">
+                <span>פירוט הנקודות שצברת:</span>
+                <span>+{quizResult.earnedPoints} נק'</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>אישור לימוד ("למדתי בשמחה"):</span>
+                <span className={quizResult.confirmedStudy ? 'text-emerald-700 font-bold' : 'text-slate-400'}>
+                  {quizResult.confirmedStudy ? '+10 נק\'' : '0 נק\''}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>תשובות נכונות בחידון ({quizResult.score}/4):</span>
+                <span className="text-emerald-700 font-bold">+{quizResult.score * 10} נק'</span>
+              </div>
+              {quizResult.isPerfect && (
+                <div className="flex justify-between items-center text-amber-800 font-bold">
+                  <span>בונוס הצטיינות 4/4 מושלם:</span>
+                  <span>+20 נק'</span>
+                </div>
+              )}
             </div>
 
             <p className="text-xs text-amber-800/90 font-semibold">

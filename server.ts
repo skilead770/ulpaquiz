@@ -1082,6 +1082,39 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Reset a student's quiz submission for a specific date (Admin)
+  app.post('/api/students/:id/reset-quiz', requireAdmin, async (req, res) => {
+    const { date } = req.body;
+    const studentId = req.params.id;
+
+    if (!date) {
+      return res.status(400).json({ error: 'Date is required' });
+    }
+
+    const studentIdx = db.students.findIndex((s) => s.id === studentId);
+    if (studentIdx === -1) {
+      return res.status(404).json({ error: 'תלמידה לא נמצאה' });
+    }
+
+    const student = db.students[studentIdx];
+    const submission = student.submissions?.[date];
+
+    if (!submission) {
+      // Nothing to reset, but not an error.
+      return res.json({ success: true, student, students: db.students, message: 'לא נמצאה הגשה לאיפוס בתאריך זה.' });
+    }
+
+    const pointsToDeduct = submission.earnedPoints || 0;
+    student.points = Math.max(0, (student.points || 0) - pointsToDeduct);
+    student.completedDates = (student.completedDates || []).filter((d) => d !== date);
+    if (student.submissions) {
+      delete student.submissions[date];
+    }
+    saveDB();
+    await saveStudentToFirestore(student);
+    res.json({ success: true, student, students: db.students });
+  });
+
   // Get halachot list
   app.get('/api/halachot', (req, res) => {
     res.json(db.halachot);
@@ -1234,7 +1267,7 @@ async function startServer() {
 
   // Submit Quiz endpoint (Part 2 Scoring Mechanism)
   app.post('/api/submit-quiz', async (req, res) => {
-    const { studentId, date, answers } = req.body; // answers: { q1: 0, q2: 1, ... }
+    const { studentId, date, answers, confirmedStudy } = req.body; // answers: { q1: 0, q2: 1, ... }
     if (!studentId || !date || !answers) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
@@ -1282,12 +1315,11 @@ async function startServer() {
       }
     });
 
-    // Scoring Engine Rule (Part 2):
-    // Base participation: +1 point to student, class, grade
-    // Bonus for 4/4 ("מצטיינת יומית"): +1 extra point to student, class, grade
-    // Total: 2 points if perfect, 1 point if participation
     const isPerfect = correctCount === 4;
-    const earnedPoints = isPerfect ? 2 : 1;
+    const studyPoints = confirmedStudy ? 10 : 0;
+    const questionPoints = correctCount * 10;
+    const bonusPoints = isPerfect ? 20 : 0;
+    const earnedPoints = studyPoints + questionPoints + bonusPoints;
 
     const previousPoints = student.points;
     const newPoints = previousPoints + earnedPoints;
@@ -1304,6 +1336,7 @@ async function startServer() {
       earnedPoints,
       submittedAt: submissionTime,
       answers,
+      ...(confirmedStudy ? { confirmedStudy: true } : {}),
     };
 
     student.points = newPoints;
@@ -1333,7 +1366,7 @@ async function startServer() {
       student,
       milestonesReached,
       message: isPerfect
-        ? 'כל הכבוד! ענית נכון על כל השאלות! צברת 2 נקודות לך, לכיתה ולשכבה!'
+        ? `אלופה! ענית נכון על כל 4 השאלות וזכית בבונוס מושלם! צברת ${earnedPoints} נקודות!`
         : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
     });
   });
