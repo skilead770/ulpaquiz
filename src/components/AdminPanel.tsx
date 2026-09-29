@@ -25,6 +25,7 @@ import {
   Check,
   X,
   Mail,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Student,
@@ -55,6 +56,7 @@ import {
   fetchClassesApi,
   addClassApi,
   deleteClassApi,
+  resetStudentQuizSubmissionApi,
 } from '../lib/api';
 import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
 import { signInWithGoogleSSO } from '../lib/authService';
@@ -495,6 +497,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isUpdatingStudent, setIsUpdatingStudent] = useState(false);
   const [editStudentError, setEditStudentError] = useState<string | null>(null);
+  const [isResettingQuiz, setIsResettingQuiz] = useState(false);
+
+  const handleResetQuiz = async (studentId: string, date: string) => {
+    if (!confirm(`האם לאפס את הגשת החידון לתאריך ${date}? הניקוד ינוכה והתלמידה תוכל להיבחן שוב.`)) {
+      return;
+    }
+    setIsResettingQuiz(true);
+    try {
+      const res = await resetStudentQuizSubmissionApi(studentId, date);
+      if (editingStudent && editingStudent.id === studentId) {
+        setEditingStudent(res.student);
+      }
+      onRefreshData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'שגיאה באיפוס הגשת החידון');
+    } finally {
+      setIsResettingQuiz(false);
+    }
+  };
+
+  const handleToggleQuizEnabled = async (halacha: DailyHalacha) => {
+    try {
+      const updated: DailyHalacha = { ...halacha, quizEnabled: halacha.quizEnabled === false };
+      await saveHalachaApi(updated);
+      onRefreshData();
+    } catch (err) {
+      console.error(err);
+      alert('נכשלה שמירת סטטוס החידון');
+    }
+  };
 
   const handleOpenEditStudent = (s: Student) => {
     setEditingStudent({ ...s });
@@ -1722,6 +1755,16 @@ ${targetHalacha.content}
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
+                      onClick={() => handleToggleQuizEnabled(h)}
+                      className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors ${
+                        h.quizEnabled === false
+                          ? 'bg-amber-100 hover:bg-amber-200 text-amber-900'
+                          : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900'
+                      }`}
+                    >
+                      <span>{h.quizEnabled === false ? 'הפעל חידון' : 'השבת חידון'}</span>
+                    </button>
+                    <button
                       onClick={() => openHalachaEditor(h)}
                       className="p-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1 transition-colors"
                     >
@@ -2489,6 +2532,48 @@ ${targetHalacha.content}
                         className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                       />
                     </div>
+                  </div>
+
+                  {/* Quiz Submissions & Reset */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <label className="block text-xs font-bold text-slate-700">
+                      הגשות חידונים של התלמידה ({editingStudent.completedDates?.length || 0})
+                    </label>
+                    {(!editingStudent.completedDates || editingStudent.completedDates.length === 0) ? (
+                      <p className="text-xs text-slate-400 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        אין הגשות חידונים לתלמידה זו עדיין.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                        {editingStudent.completedDates.map((date) => {
+                          const sub = editingStudent.submissions?.[date];
+                          return (
+                            <div
+                              key={date}
+                              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                            >
+                              <div>
+                                <span className="font-bold text-slate-800">{date}</span>
+                                {sub && (
+                                  <span className="text-slate-500 mr-2">
+                                    ({sub.score}/4 נכון • +{sub.earnedPoints} נק')
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isResettingQuiz}
+                                onClick={() => handleResetQuiz(editingStudent.id, date)}
+                                className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-bold flex items-center gap-1 transition-colors disabled:opacity-50"
+                              >
+                                <RotateCcw className={`w-3 h-3 ${isResettingQuiz ? 'animate-spin' : ''}`} />
+                                <span>אפס הגשה</span>
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Quick approve button if currently pending */}

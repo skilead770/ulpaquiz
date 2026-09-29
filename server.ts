@@ -326,6 +326,10 @@ async function startServer() {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
+  app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    next();
+  });
 
   // Initialize Firestore on startup
   await initFirestore();
@@ -1239,11 +1243,6 @@ async function startServer() {
       return res.status(400).json({ error: 'Missing required halacha fields' });
     }
 
-    app.use((req, res, next) => {
-      res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-      next();
-    });
-      
 
     const existingIdx = db.halachot.findIndex((h) => h.date === halacha.date || h.id === halacha.id);
     if (existingIdx >= 0) {
