@@ -572,6 +572,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMsg, setAiMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Keep the Gemini API key in memory only for the current session. Do not persist secrets to localStorage.
+  const geminiApiKeyRef = React.useRef<string | null>(null);
+
   // AI Questions from Content State
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [questionsAiError, setQuestionsAiError] = useState<string | null>(null);
@@ -879,14 +882,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsGeneratingQuestions(true);
     setQuestionsAiError(null);
     try {
-      let apiKey = localStorage.getItem('ULPAQUIZ_GEMINI_KEY');
+      let apiKey = geminiApiKeyRef.current;
       if (!apiKey) {
         const userKey = prompt(
-          "אנא הזן את מפתח ה-Gemini API החופשי שלך.\n(ניתן לקבל מפתח בחינם לחלוטין ללא כרטיס אשראי ב-Google AI Studio).\nהמפתח יישמר באופן מאובטח בדפדפן שלך בלבד:"
+          "אנא הזן את מפתח ה-Gemini API החופשי שלך.\n(ניתן לקבל מפתח בחינם לחלוטין ללא כרטיס אשראי ב-Google AI Studio).\nהמפתח נשמר רק לזמן השימוש הנוכחי בדפדפן:"
         );
         if (userKey && userKey.trim()) {
-          localStorage.setItem('ULPAQUIZ_GEMINI_KEY', userKey.trim());
           apiKey = userKey.trim();
+          geminiApiKeyRef.current = apiKey;
         } else {
           throw new Error('פעולת ה-AI בוטלה - לא הוזן מפתח API.');
         }
@@ -944,8 +947,8 @@ ${targetHalacha.content}
       if (!response.ok) {
         const errText = await response.text();
         if (response.status === 400 || response.status === 403) {
-          localStorage.removeItem('ULPAQUIZ_GEMINI_KEY');
-          throw new Error('מפתח ה-API שהוזן אינו תקין או פג תוקף. המפתח הוסר, אנא לחץ שוב והזן מפתח תקין.');
+          geminiApiKeyRef.current = null;
+          throw new Error('מפתח ה-API שהוזן אינו תקין או פג תוקף. המפתח הוסר מרמת הזיכרון, אנא הזן מפתח חדש.');
         }
         throw new Error(errText || 'שגיאה בתקשורת ישירה מול שרתי Google Gemini');
       }

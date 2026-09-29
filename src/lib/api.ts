@@ -38,24 +38,15 @@ import {
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
 
-// Token Management for secure API requests
-let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halacha_auth_token') : null;
+// Token Management for secure API requests.
+// Keep the token in memory only so a browser compromise or local persistence does not expose an authenticated session.
+let currentAuthToken: string | null = null;
 
 export function setAuthToken(token: string | null) {
   currentAuthToken = token;
-  if (typeof window !== 'undefined') {
-    if (token) {
-      localStorage.setItem('halacha_auth_token', token);
-    } else {
-      localStorage.removeItem('halacha_auth_token');
-    }
-  }
 }
 
 export function getAuthToken(): string | null {
-  if (!currentAuthToken && typeof window !== 'undefined') {
-    currentAuthToken = localStorage.getItem('halacha_auth_token');
-  }
   return currentAuthToken;
 }
 

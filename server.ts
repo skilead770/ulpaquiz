@@ -46,7 +46,8 @@ interface DatabaseSchema {
   classes: string[];
 }
 
-// In-memory cache synced with db.json and Firestore
+// In-memory cache synced with db.json and Firestore.
+// Firestore is treated as the live system of record when it is available; the local JSON file remains a snapshot/fallback.
 let db: DatabaseSchema = {
   students: [],
   halachot: [],
@@ -123,6 +124,8 @@ function initDB() {
 
 function saveDB() {
   try {
+    // Keep the local JSON file as a mirrored snapshot for recovery and local debugging.
+    // When Firestore is active, it remains the runtime source of truth and should be treated as authoritative.
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
   } catch (e) {
     console.error('Error saving DB_FILE', e);

@@ -60,6 +60,7 @@ export async function signInWithGoogleSSO(requestDriveScope = false): Promise<{ 
  * Sign out current Firebase Auth user
  */
 export async function signOutSSO(): Promise<void> {
+  cachedGoogleAccessToken = null;
   await firebaseSignOut(auth);
 }
 
