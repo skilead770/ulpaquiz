@@ -203,9 +203,10 @@ export default function App() {
     ? null
     : students.find((student) => student.id === currentStudentId) ?? null;
   const studentDateWindow = new Set(getStudentQuizDateWindow(todayDate));
-  const dashboardHalachot = currentStudentId === 'admin'
+  const dashboardHalachot = (currentStudentId === 'admin'
     ? halachot
-    : uniqueQuizzesByDate(halachot.filter((halacha) => studentDateWindow.has(halacha.date)));
+    : uniqueQuizzesByDate(halachot.filter((halacha) => studentDateWindow.has(halacha.date)))
+  ).slice().sort((a, b) => a.date.localeCompare(b.date));
   const selectedHalacha = dashboardHalachot.find((halacha) => halacha.date === selectedDate);
 
   return (

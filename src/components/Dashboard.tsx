@@ -189,11 +189,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <BookOpen className="w-3.5 h-3.5 shrink-0" />
                   <span>{currentHalacha.topic}</span>
                 </span>
-                {currentHalacha.hebrewDate && (
-                  <span className="bg-amber-700 text-white text-[11px] sm:text-xs font-black px-2.5 sm:px-3 py-1 rounded-full shadow-xs">
-                    🗓️ {currentHalacha.hebrewDate}
-                  </span>
-                )}
                 <span className="bg-amber-200/80 text-amber-950 text-[11px] sm:text-xs font-extrabold px-2.5 sm:px-3 py-1 rounded-full border border-amber-300 max-w-full truncate">
                   📚 {currentHalacha.source || 'סדרת אהלי הלכה • הגר"י אריאל שליט"א'}
                 </span>
