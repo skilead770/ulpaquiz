@@ -94,6 +94,10 @@ export default function App() {
   }, [todayDate]);
 
   useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
     if (currentStudentId === null || currentStudentId === 'admin') {
       return;
     }
@@ -107,7 +111,7 @@ export default function App() {
       }
       setActiveTab('study');
     }
-  }, [currentStudentId, students]);
+  }, [currentStudentId, isLoading, students]);
 
   const handleResetDemo = async () => {
     if (confirm('האם לאפס את כל הנתונים, הניקוד והחידונים למצב ההתחלתי?')) {
