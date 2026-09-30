@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Student, DailyHalacha } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
+import { formatShortHebrewDateLabel } from '../lib/quizSchedule';
 
 interface DashboardProps {
   student: Student;
@@ -164,7 +165,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
                 }`}
               >
-                <span>{h.hebrewDate ? `${h.hebrewDate}` : h.date}</span>
+                <span>{formatShortHebrewDateLabel(h.hebrewDate) || h.date}</span>
                 {isDone && (
                   <CheckCircle2
                     className={`w-3.5 h-3.5 shrink-0 ${

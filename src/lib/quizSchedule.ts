@@ -18,6 +18,26 @@ export function getStudentQuizDateWindow(today: string = getTodayInJerusalem()):
   );
 }
 
+export function formatShortHebrewDateLabel(hebrewDate?: string): string {
+  if (!hebrewDate) return '';
+
+  const parts = hebrewDate.trim().split(/\s+/);
+  if (parts.length < 2) return hebrewDate;
+
+  const monthNames = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אייר', 'סיוון', 'תמוז', 'אב', 'אלול'];
+  const secondIsMonth = monthNames.some((month) => parts[1].includes(month));
+
+  if (secondIsMonth) {
+    const remaining = parts.slice(0, 2);
+    if (parts.length >= 3 && /^ב'|^א'|^\d+$/.test(parts[2])) {
+      remaining.push(parts[2]);
+    }
+    return remaining.join(' ');
+  }
+
+  return hebrewDate;
+}
+
 export function uniqueQuizzesByDate<T extends { date: string }>(quizzes: T[]): T[] {
   const seenDates = new Set<string>();
 
