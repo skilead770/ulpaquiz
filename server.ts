@@ -264,8 +264,19 @@ async function saveManagerToFirestore(manager: Manager) {
 async function deleteManagerFromFirestore(email: string) {
   if (!firestoreDb) return;
   try {
-    const safeId = email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
-    await firestoreDb.collection('managers').doc(safeId).delete();
+    const cleanEmail = email.toLowerCase().trim();
+    const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
+    const snapshot = await firestoreDb.collection('managers').get();
+    const matches = snapshot.docs.filter((doc) => {
+      const data = doc.data() as Partial<Manager>;
+      return doc.id === safeId || (data.email || '').toLowerCase().trim() === cleanEmail;
+    });
+
+    if (matches.length === 0) {
+      return;
+    }
+
+    await Promise.all(matches.map((doc) => doc.ref.delete()));
   } catch (err) {
     console.error(`[Firestore] Error deleting manager ${email}:`, err);
   }

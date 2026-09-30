@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
 import { Student, Manager } from '../types';
+import { validateGmailAddress } from './gmailValidator';
 
 export interface AuthSession {
   user: FirebaseUser | null;
@@ -30,6 +31,41 @@ let cachedGoogleAccessToken: string | null = null;
 
 export function getCachedGoogleAccessToken(): string | null {
   return cachedGoogleAccessToken;
+}
+
+export function validateSecureGoogleGmail(firebaseUser: FirebaseUser | null): {
+  isValid: boolean;
+  normalizedEmail?: string;
+  error?: string;
+} {
+  const email = (firebaseUser?.email || '').trim().toLowerCase();
+
+  if (!email) {
+    return {
+      isValid: false,
+      error: 'לא נמצא חשבון Google מחובר.',
+    };
+  }
+
+  if (firebaseUser?.emailVerified === false) {
+    return {
+      isValid: false,
+      error: 'החשבון Google חייב להיות מאומת לפני הכניסה למערכת.',
+    };
+  }
+
+  const validation = validateGmailAddress(email);
+  if (!validation.isValid || !validation.normalizedEmail) {
+    return {
+      isValid: false,
+      error: validation.error || 'כניסה מאובטחת דורשת כתובת Gmail תקינה.',
+    };
+  }
+
+  return {
+    isValid: true,
+    normalizedEmail: validation.normalizedEmail,
+  };
 }
 
 /**
@@ -84,17 +120,20 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
   const name = firebaseUser?.displayName || undefined;
   const picture = firebaseUser?.photoURL || undefined;
 
-  if (!email) {
+  const secureCheck = validateSecureGoogleGmail(firebaseUser);
+  if (!secureCheck.isValid) {
     return {
       success: false,
       role: 'unauthorized',
-      email: '',
+      email,
       name,
       picture,
-      message: 'לא נמצא חשבון Google מחובר.',
-      error: 'MISSING_USER_EMAIL',
+      message: secureCheck.error || 'כניסה מאובטחת דורשת חשבון Google תקין.',
+      error: 'UNSAFE_GOOGLE_ACCOUNT',
     };
   }
+
+  const normalizedEmail = secureCheck.normalizedEmail || email;
 
   try {
     const managersRef = collection(db, 'managers');
@@ -106,16 +145,16 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
       return {
         success: true,
         role: 'admin',
-        email,
-        name: name || manager.name || email.split('@')[0],
+        email: normalizedEmail,
+        name: name || manager.name || normalizedEmail.split('@')[0],
         picture,
         manager,
-        message: `שלום מנהל המערכת (${manager.name || email})!`,
+        message: `שלום מנהל המערכת (${manager.name || normalizedEmail})!`,
       };
     }
 
     const studentsRef = collection(db, 'students');
-    const studentQuery = query(studentsRef, where('email', '==', email));
+    const studentQuery = query(studentsRef, where('email', '==', normalizedEmail));
     const studentSnap = await getDocs(studentQuery);
 
     if (!studentSnap.empty) {
@@ -125,8 +164,8 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
         return {
           success: false,
           role: 'pending',
-          email,
-          name: student.fullName || name || email.split('@')[0],
+          email: normalizedEmail,
+          name: student.fullName || name || normalizedEmail.split('@')[0],
           picture,
           student,
           message: `שלום ${student.fullName}! בקשת ההרשמה שלך ממתינה לאישור מנהל האולפנה.`,
@@ -137,8 +176,8 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
         return {
           success: false,
           role: 'rejected',
-          email,
-          name: student.fullName || name || email.split('@')[0],
+          email: normalizedEmail,
+          name: student.fullName || name || normalizedEmail.split('@')[0],
           picture,
           student,
           message: `בקשת ההרשמה של ${student.fullName} נדחתה. נא לפנות להנהלת האולפנה.`,
@@ -149,8 +188,8 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
       return {
         success: true,
         role: 'student',
-        email,
-        name: student.fullName || name || email.split('@')[0],
+        email: normalizedEmail,
+        name: student.fullName || name || normalizedEmail.split('@')[0],
         picture,
         student,
         message: `שלום ${student.fullName}! התחברת בהצלחה.`,
@@ -160,10 +199,10 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
     return {
       success: false,
       role: 'unauthorized',
-      email,
+      email: normalizedEmail,
       name,
       picture,
-      message: `חשבון Google זה (${email}) אינו רשום עדיין במערכת. אנא הרשמי למבצע.`,
+      message: `חשבון Google זה (${normalizedEmail}) אינו רשום עדיין במערכת. אנא הרשמי למבצע.`,
     };
   } catch (err: any) {
     console.warn('[Auth] Firebase direct auth resolution failed, falling back to backend:', err);

@@ -11,6 +11,38 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return;
+            }
+
+            if (id.includes('firebase')) {
+              return 'firebase';
+            }
+
+            if (id.includes('@hebcal')) {
+              return 'hebcal';
+            }
+
+            if (id.includes('xlsx') || id.includes('mammoth')) {
+              return 'data-tools';
+            }
+
+            if (id.includes('react') || id.includes('scheduler')) {
+              return 'react-vendor';
+            }
+
+            if (id.includes('lucide-react') || id.includes('motion')) {
+              return 'ui-vendor';
+            }
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
@@ -18,8 +50,8 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       allowedHosts: [
-      'ulpaquiz-server.onrender.com'
-    ]
+        'ulpaquiz-server.onrender.com',
+      ],
     },
   };
 });

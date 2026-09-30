@@ -156,8 +156,8 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   </p>
                   <p className="text-[11px] sm:text-xs text-emerald-800/90 font-medium truncate">
                     {confirmedStudy
-                      ? 'אישרת שלמדת בשמחה (+10 נקודות!)'
-                      : 'קראת את ההלכה? לחצי לקבלת 10 נקודות'}
+                      ? 'אישרת שלמדת בשמחה (+5 נקודות!)'
+                      : 'קראת את ההלכה? לחצי לקבלת 5 נקודות'}
                   </p>
                 </div>
               </div>
@@ -171,7 +171,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                     : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100 active:scale-95'
                 }`}
               >
-                {confirmedStudy ? '✓ למדתי בשמחה!' : 'למדתי בשמחה ✨'}
+                {confirmedStudy ? '✓ מוכנה לחידון!' : 'קראתי ולמדתי / מוכנה לחידון ✨'}
               </button>
             </div>
 
@@ -183,24 +183,29 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   {Math.round(((currentQuestionIndex + 1) / 4) * 100)}% הושלמו
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-start gap-2">
                 {questions.map((q, idx) => {
                   const isAnswered = selectedAnswers[q.id] !== undefined;
                   const isCurrent = idx === currentQuestionIndex;
 
                   return (
-                    <button
-                      key={q.id}
-                      onClick={() => setCurrentQuestionIndex(idx)}
-                      className={`h-2.5 flex-1 rounded-full transition-all cursor-pointer ${
-                        isCurrent
-                          ? 'bg-amber-600 ring-2 ring-amber-300'
-                          : isAnswered
-                          ? 'bg-amber-400'
-                          : 'bg-amber-100'
-                      }`}
-                      aria-label={`עבור לשאלה ${idx + 1}`}
-                    />
+                    <div key={q.id} className="flex-1 min-w-0 text-center">
+                      <span className={`block mb-1 text-[9px] sm:text-[10px] font-bold whitespace-nowrap ${isCurrent ? 'text-amber-900' : 'text-slate-500'}`}>
+                        {idx + 1} · 5 נק׳
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentQuestionIndex(idx)}
+                        className={`block w-full h-2.5 rounded-full transition-all cursor-pointer ${
+                          isCurrent
+                            ? 'bg-amber-600 ring-2 ring-amber-300'
+                            : isAnswered
+                            ? 'bg-amber-400'
+                            : 'bg-amber-100'
+                        }`}
+                        aria-label={`עבור לשאלה ${idx + 1}, שווה 5 נקודות`}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -314,19 +319,6 @@ export const QuizModal: React.FC<QuizModalProps> = ({
               </p>
             </div>
 
-            {/* 4/4 Bonus Celebration Message */}
-            {quizResult.isPerfect && (
-              <div className="bg-gradient-to-r from-amber-100 via-yellow-100 to-amber-100 border-2 border-amber-400 p-3.5 sm:p-4 rounded-2xl shadow-sm text-center">
-                <div className="flex items-center justify-center gap-1.5 text-amber-900 font-black text-sm sm:text-base">
-                  <Crown className="w-5 h-5 text-amber-600" />
-                  <span>בונוס מושלם: +20 נקודות על ציון 4/4!</span>
-                </div>
-                <p className="text-xs text-amber-800 font-semibold mt-1">
-                  אלופה אמיתית! ענית נכון על כל השאלות וזכית בתוספת נקודות מיוחדת!
-                </p>
-              </div>
-            )}
-
             {/* Score Breakout */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 grid grid-cols-2 gap-3 sm:gap-4 text-center">
               <div>
@@ -350,21 +342,15 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 <span>+{quizResult.earnedPoints} נק'</span>
               </div>
               <div className="flex justify-between items-center">
-                <span>אישור לימוד ("למדתי בשמחה"):</span>
+                <span>אישור לימוד ("קראתי ולמדתי / מוכנה לחידון"):</span>
                 <span className={quizResult.confirmedStudy ? 'text-emerald-700 font-bold' : 'text-slate-400'}>
-                  {quizResult.confirmedStudy ? '+10 נק\'' : '0 נק\''}
+                  {quizResult.confirmedStudy ? '+5 נק\'' : '0 נק\''}
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span>תשובות נכונות בחידון ({quizResult.score}/4):</span>
-                <span className="text-emerald-700 font-bold">+{quizResult.score * 10} נק'</span>
+                <span className="text-emerald-700 font-bold">+{quizResult.score * 5} נק'</span>
               </div>
-              {quizResult.isPerfect && (
-                <div className="flex justify-between items-center text-amber-800 font-bold">
-                  <span>בונוס הצטיינות 4/4 מושלם:</span>
-                  <span>+20 נק'</span>
-                </div>
-              )}
             </div>
 
             <p className="text-xs text-amber-800/90 font-semibold">

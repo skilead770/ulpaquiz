@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { HDate, calendar, getHolidaysOnDate, months } from '@hebcal/core';
+import * as Hebcal from '@hebcal/core';
 import {
   FileSpreadsheet,
   BookOpen,
@@ -31,6 +31,7 @@ import {
   Student,
   DailyHalacha,
   PrizeReportItem,
+  PrizeMilestone,
   Question,
   GradeType,
   Manager,
@@ -39,6 +40,7 @@ import {
 } from '../types';
 import { SUPER_ADMIN_EMAIL, API_BASE_URL } from '../lib/config';
 import { ExcelUploader } from './ExcelUploader';
+import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import {
   bulkImportStudentsApi,
   saveHalachaApi,
@@ -57,6 +59,8 @@ import {
   addClassApi,
   deleteClassApi,
   resetStudentQuizSubmissionApi,
+  savePrizeMilestonesApi,
+  getPrizeMilestones,
 } from '../lib/api';
 import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
 import { signInWithGoogleSSO } from '../lib/authService';
@@ -74,7 +78,7 @@ interface AdminPanelProps {
 const hebrewWeekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const halachaHebrewYear = 5787;
 const halachaHebrewYearText = 'תשפ״ז';
-const hebcalEventsByYear = new Map<number, ReturnType<typeof calendar>>();
+const hebcalEventsByYear = new Map<number, ReturnType<typeof Hebcal.calendar>>();
 
 function stripHebrewVowels(value: string) {
   return value.replace(/[\u0591-\u05C7]/g, '').trim();
@@ -93,17 +97,17 @@ function hebrewDayNumber(day: number) {
 function getHebcalEventsForYear(year: number) {
   let events = hebcalEventsByYear.get(year);
   if (!events) {
-    events = calendar({ year, isHebrewYear: true, il: true, sedrot: true });
+    events = Hebcal.calendar({ year, isHebrewYear: true, il: true, sedrot: true });
     hebcalEventsByYear.set(year, events);
   }
   return events;
 }
 
-function makeHebrewCalendarEntry(date: HDate, halacha: DailyHalacha | null) {
+function makeHebrewCalendarEntry(date: Hebcal.HDate, halacha: DailyHalacha | null) {
   const parshaEvent = getHebcalEventsForYear(date.getFullYear()).find(
     (event) => event.getDate().abs() === date.abs() && event.getDesc().startsWith('Parashat ')
   );
-  const holidayNames = (getHolidaysOnDate(date, true) || []).map((event) =>
+  const holidayNames = (Hebcal.getHolidaysOnDate(date, true) || []).map((event) =>
     stripHebrewVowels(event.render('he'))
   );
 
@@ -139,9 +143,9 @@ function parseDocumentHebrewHeading(line: string) {
   if (!dateMatch) return null;
 
   const dateText = dateMatch[0].trim().replace(/"/g, '״').replace(/'/g, '׳');
-  let date: HDate;
+  let date: Hebcal.HDate;
   try {
-    date = HDate.fromGematriyaString(`${dateText} ${halachaHebrewYearText}`);
+    date = Hebcal.HDate.fromGematriyaString(`${dateText} ${halachaHebrewYearText}`);
   } catch {
     return null;
   }
@@ -205,23 +209,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const monthOptions = React.useMemo(() => {
     const year = halachaHebrewYear;
     const monthOrder = [
-      months.TISHREI,
-      months.CHESHVAN,
-      months.KISLEV,
-      months.TEVET,
-      months.SHVAT,
-      months.ADAR_I,
-      ...(HDate.isLeapYear(year) ? [months.ADAR_II] : []),
-      months.NISAN,
-      months.IYYAR,
-      months.SIVAN,
-      months.TAMUZ,
-      months.AV,
-      months.ELUL,
+      Hebcal.months.TISHREI,
+      Hebcal.months.CHESHVAN,
+      Hebcal.months.KISLEV,
+      Hebcal.months.TEVET,
+      Hebcal.months.SHVAT,
+      Hebcal.months.ADAR_I,
+      ...(Hebcal.HDate.isLeapYear(year) ? [Hebcal.months.ADAR_II] : []),
+      Hebcal.months.NISAN,
+      Hebcal.months.IYYAR,
+      Hebcal.months.SIVAN,
+      Hebcal.months.TAMUZ,
+      Hebcal.months.AV,
+      Hebcal.months.ELUL,
     ];
 
     return monthOrder.map((month) => {
-      const firstDay = new HDate(1, month, year);
+      const firstDay = new Hebcal.HDate(1, month, year);
       return {
         key: `${year}-${month}`,
         label: stripHebrewVowels(
@@ -231,7 +235,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   }, []);
 
-  const currentHebrewDate = new HDate(new Date());
+  const currentHebrewDate = new Hebcal.HDate(new Date());
   const currentMonthKey = `${currentHebrewDate.getFullYear()}-${currentHebrewDate.getMonth()}`;
   const [selectedMonthKey, setSelectedMonthKey] = useState('');
 
@@ -257,9 +261,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const halachotByHebrewDate = new Map<number, DailyHalacha>();
       hebrewDateEntries.forEach((entry) => halachotByHebrewDate.set(entry.date.abs(), entry.halacha));
 
-      const firstDay = new HDate(1, monthNumber, halachaHebrewYear);
+      const firstDay = new Hebcal.HDate(1, monthNumber, halachaHebrewYear);
       return Array.from({ length: firstDay.daysInMonth() }, (_, index) => {
-        const date = new HDate(index + 1, monthNumber, halachaHebrewYear);
+        const date = new Hebcal.HDate(index + 1, monthNumber, halachaHebrewYear);
         return makeHebrewCalendarEntry(date, halachotByHebrewDate.get(date.abs()) || null);
       });
     },
@@ -385,7 +389,63 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const [prizeMilestones, setPrizeMilestones] = useState<PrizeMilestone[]>(DEFAULT_PRIZE_MILESTONES);
+  const [prizeSaveError, setPrizeSaveError] = useState<string | null>(null);
+  const [isSavingPrizes, setIsSavingPrizes] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    getPrizeMilestones().then((milestones) => {
+      if (active) {
+        setPrizeMilestones(milestones.length > 0 ? milestones : DEFAULT_PRIZE_MILESTONES);
+      }
+    }).catch(() => {
+      setPrizeMilestones(DEFAULT_PRIZE_MILESTONES);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handlePrizeMilestoneChange = (index: number, field: 'points' | 'title' | 'rewardDescription', value: string | number) => {
+    setPrizeMilestones((prev) => prev.map((m, i) => {
+      if (i !== index) return m;
+      if (field === 'points') {
+        return { ...m, points: Number(value) || 0 };
+      }
+      return { ...m, [field]: String(value) };
+    }));
+  };
+
+  const handleSavePrizeMilestones = async () => {
+    setIsSavingPrizes(true);
+    setPrizeSaveError(null);
+    try {
+      const normalized = [...prizeMilestones]
+        .map((m) => ({
+          ...m,
+          points: Number(m.points) || 0,
+          title: (m.title || '').trim(),
+          rewardDescription: (m.rewardDescription || '').trim(),
+        }))
+        .filter((m) => m.title && m.rewardDescription)
+        .sort((a, b) => a.points - b.points);
+
+      if (normalized.length === 0) {
+        throw new Error('יש להזין לפחות פרס אחד תקין');
+      }
+
+      await savePrizeMilestonesApi(normalized);
+      setPrizeMilestones(normalized);
+      onRefreshData();
+      alert('שינויים בפרסים נשמרו בהצלחה');
+    } catch (err: any) {
+      setPrizeSaveError(err?.message || 'שגיאה בשמירת פרסים');
+    } finally {
+      setIsSavingPrizes(false);
+    }
+  };
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
@@ -551,7 +611,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         grade: editingStudent.grade,
         className: editingStudent.className.trim(),
         username: editingStudent.username,
-        password: editingStudent.password,
+        ...(editingStudent.password ? { password: editingStudent.password } : {}),
         points: Number(editingStudent.points) || 0,
         status: editingStudent.status || 'approved',
       });
@@ -1153,7 +1213,7 @@ ${targetHalacha.content}
               }`}
             >
               <ShieldCheck className="w-4 h-4 text-yellow-300 shrink-0" />
-              <span>מנהלים ({managers.length || 1})</span>
+              <span>מנהלים ({Array.isArray(managers) ? managers.length : 1})</span>
             </button>
 
             <button
@@ -2637,21 +2697,72 @@ ${targetHalacha.content}
             <div className="border-b border-amber-100 pb-3">
               <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
                 <Crown className="w-5 h-5 text-amber-600" />
-                <span>סיכום מנצחות ומקומות ראשונים בסיום המבצע</span>
+                <span>עריכת פרסים ונקודות</span>
               </h3>
               <p className="text-xs text-amber-800">
-                דוח מרוכז למתן פרסים כיתתיים, שכבתיים ואישיים באולפנה.
+                ניתן לערוך את רף הנקודות ותיאור הפרסים שיוצגו בתהליכים, בלוח המובילים ובדוח הפרסים.
               </p>
             </div>
 
-            {/* Qualifying Students Table */}
             <div className="space-y-3">
+              {prizeMilestones.map((milestone, index) => (
+                <div key={`${milestone.title}-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 p-3 rounded-2xl border border-amber-200 bg-amber-50/40">
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">נקודות</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={milestone.points}
+                      onChange={(e) => handlePrizeMilestoneChange(index, 'points', e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">כותרת</label>
+                    <input
+                      type="text"
+                      value={milestone.title}
+                      onChange={(e) => handlePrizeMilestoneChange(index, 'title', e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+                  <div className="md:col-span-7">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">תיאור פרס</label>
+                    <input
+                      type="text"
+                      value={milestone.rewardDescription}
+                      onChange={(e) => handlePrizeMilestoneChange(index, 'rewardDescription', e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {prizeSaveError && (
+                <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  {prizeSaveError}
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSavePrizeMilestones}
+                  disabled={isSavingPrizes}
+                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-amber-700 hover:bg-amber-800 shadow-sm disabled:opacity-50"
+                >
+                  {isSavingPrizes ? 'שומר פרסים...' : 'שמור פרסים'}
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-amber-100 pt-4 space-y-3">
               <h4 className="font-extrabold text-amber-950 text-sm">
                 תלמידות שהגיעו ליעד פרס אישי:
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {prizeReports
+                {(Array.isArray(prizeReports) ? prizeReports : [])
                   .filter((r) => r.qualifyingMilestones.length > 0)
                   .map((report) => (
                     <div
@@ -2719,8 +2830,7 @@ ${targetHalacha.content}
               <div className="bg-white/10 backdrop-blur-md border border-white/20 p-3.5 rounded-2xl text-right sm:min-w-[240px]">
                 <span className="text-[11px] text-amber-200 font-medium block">מנהל ראשי נוכחי:</span>
                 <span className="text-sm font-extrabold text-white font-mono dir-ltr block">
-                  ${SUPER_ADMIN_EMAIL}
-
+                  {SUPER_ADMIN_EMAIL}
                 </span>
                 <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-400/20 text-yellow-300 text-[10px] font-bold rounded-md border border-yellow-400/30">
                   סופר-אדמין (קבוע)
@@ -2764,7 +2874,7 @@ ${targetHalacha.content}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs leading-relaxed text-amber-900/90">
               <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
                 <span className="font-extrabold text-amber-800 block">1. הזנת כתובת ה-Gmail</span>
-                <p>במסך הכניסה, מזינים את כתובת ה-Gmail המורשית (למשל ${SUPER_ADMIN_EMAIL}).</p>
+                <p>במסך הכניסה, מזינים את כתובת ה-Gmail המורשית (למשל {SUPER_ADMIN_EMAIL}).</p>
               </div>
               <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60 space-y-1">
                 <span className="font-extrabold text-amber-800 block">2. זיהוי אוטומטי כמנהל</span>
@@ -2849,13 +2959,13 @@ ${targetHalacha.content}
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-amber-600" />
                 <h3 className="text-sm font-extrabold text-slate-800">
-                  רשימת מנהלי המערכת ({managers.length})
+                  רשימת מנהלי המערכת ({Array.isArray(managers) ? managers.length : 0})
                 </h3>
               </div>
             </div>
 
             <div className="divide-y divide-slate-100">
-              {managers.map((m) => {
+              {(Array.isArray(managers) ? managers : []).map((m) => {
                 const isSuperadmin = m.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
                 return (
                   <div

@@ -20,7 +20,7 @@ import {
 import { Student, DEFAULT_CLASSES } from '../types';
 import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
-import { resolveFirebaseUserSession, signInWithGoogleSSO, verifyBackendToken } from '../lib/authService';
+import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail, verifyBackendToken } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 
@@ -107,7 +107,14 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     try {
       const { user: firebaseUser } = await signInWithGoogleSSO();
       const idToken = await firebaseUser.getIdToken();
-      const userEmail = (firebaseUser.email || '').trim().toLowerCase();
+      const secureCheck = validateSecureGoogleGmail(firebaseUser);
+
+      if (!secureCheck.isValid || !secureCheck.normalizedEmail) {
+        setError(secureCheck.error || 'כניסה מאובטחת דורשת חשבון Google תקין.');
+        return;
+      }
+
+      const userEmail = secureCheck.normalizedEmail;
 
       // First migration chunk: prefer direct Firestore-based app auth resolution.
       const resolved = await resolveFirebaseUserSession(firebaseUser);

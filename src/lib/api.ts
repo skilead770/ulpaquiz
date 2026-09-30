@@ -109,6 +109,24 @@ async function getOrSeedFirestoreHalachot(): Promise<DailyHalacha[]> {
   }
 }
 
+function stripUndefinedValues<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedValues(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    const cleaned: Record<string, any> = {};
+    Object.entries(value as Record<string, any>).forEach(([key, item]) => {
+      if (typeof item !== 'undefined') {
+        cleaned[key] = stripUndefinedValues(item);
+      }
+    });
+    return cleaned as T;
+  }
+
+  return value;
+}
+
 export async function fetchStudents(): Promise<Student[]> {
   try {
     const snap = await getDocs(collection(db, 'students'));
@@ -284,9 +302,9 @@ export async function submitQuizApi(
     });
 
     const isPerfect = correctCount === 4;
-    const studyPoints = confirmedStudy ? 10 : 0;
-    const questionPoints = correctCount * 10;
-    const bonusPoints = isPerfect ? 20 : 0;
+    const studyPoints = confirmedStudy ? 5 : 0;
+    const questionPoints = correctCount * 5;
+    const bonusPoints = 0;
     const earnedPoints = studyPoints + questionPoints + bonusPoints;
     const previousPoints = student.points;
     const newPoints = previousPoints + earnedPoints;
@@ -335,8 +353,8 @@ export async function submitQuizApi(
       student,
       milestonesReached,
       message: isPerfect
-        ? `אלופה! ענית נכון על כל 4 השאלות וזכית בבונוס מושלם! צברת ${earnedPoints} נקודות!`
-        : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
+        ? `אלופה! ענית נכון על כל 4 השאלות וצברת ${earnedPoints} נקודות!`
+        : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודות לימוד לך, לכיתה ולשכבה!`,
     };
   } catch (firestoreErr) {
     console.info('[Firestore] Direct quiz submission failed, trying legacy API:', firestoreErr);
@@ -385,9 +403,9 @@ export async function submitQuizApi(
   });
 
   const isPerfect = correctCount === 4;
-  const studyPoints = confirmedStudy ? 10 : 0;
-  const questionPoints = correctCount * 10;
-  const bonusPoints = isPerfect ? 20 : 0;
+  const studyPoints = confirmedStudy ? 5 : 0;
+  const questionPoints = correctCount * 5;
+  const bonusPoints = 0;
   const earnedPoints = studyPoints + questionPoints + bonusPoints;
   const previousPoints = student.points;
   const newPoints = previousPoints + earnedPoints;
@@ -439,8 +457,8 @@ export async function submitQuizApi(
     student,
     milestonesReached,
     message: isPerfect
-      ? `אלופה! ענית נכון על כל 4 השאלות וזכית בבונוס מושלם! צברת ${earnedPoints} נקודות!`
-      : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודה לימוד לך, לכיתה ולשכבה!`,
+        ? `אלופה! ענית נכון על כל 4 השאלות וצברת ${earnedPoints} נקודות!`
+        : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודות לימוד לך, לכיתה ולשכבה!`,
   };
 }
 
@@ -558,43 +576,85 @@ export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData
   };
 }
 
+export async function getPrizeMilestones(): Promise<PrizeMilestone[]> {
+  try {
+    const settingsSnap = await getDoc(doc(db, 'settings', 'prizeMilestones'));
+    if (settingsSnap.exists()) {
+      const data = settingsSnap.data() as { milestones?: PrizeMilestone[] };
+      if (Array.isArray(data.milestones) && data.milestones.length > 0) {
+        return [...data.milestones].sort((a, b) => a.points - b.points);
+      }
+    }
+  } catch (err) {
+    console.info('[Firestore] Direct prize milestone read failed, falling back to defaults:', err);
+  }
+
+  return [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points);
+}
+
+export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Promise<PrizeMilestone[]> {
+  const normalized = [...milestones]
+    .map((m) => ({
+      ...m,
+      points: Number(m.points) || 0,
+      title: (m.title || '').trim(),
+      rewardDescription: (m.rewardDescription || '').trim(),
+    }))
+    .filter((m) => m.title && m.rewardDescription)
+    .sort((a, b) => a.points - b.points);
+
+  await setDoc(doc(db, 'settings', 'prizeMilestones'), {
+    milestones: normalized,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return normalized;
+}
+
 export async function fetchPrizesApi(): Promise<{
   reports: PrizeReportItem[];
   milestones: PrizeMilestone[];
 }> {
+  try {
+    const milestones = await getPrizeMilestones();
+    const students = await getOrSeedFirestoreStudents();
+    const activeStudents = students.filter(
+      (s) => !s.managerParticipation && s.status !== 'pending' && s.status !== 'rejected'
+    );
+
+    const reports: PrizeReportItem[] = activeStudents.map((student) => {
+      const qualifyingMilestones = milestones.filter((m) => student.points >= m.points);
+      const nextMilestone = milestones.find((m) => student.points < m.points) || null;
+      const pointsNeeded = nextMilestone ? nextMilestone.points - student.points : 0;
+
+      return {
+        student,
+        qualifyingMilestones,
+        nextMilestone,
+        pointsNeeded,
+      };
+    });
+
+    return {
+      reports,
+      milestones,
+    };
+  } catch (e) {
+    console.info('[API] Firestore prize fetch failed, trying server fallback');
+  }
+
   try {
     const res = await fetch(API_BASE_URL + '/api/prizes');
     if (res.ok) {
       return await parseJsonResponse(res);
     }
   } catch (e) {
-    console.info('[API] Falling back to direct Firestore for fetchPrizesApi');
+    console.info('[API] Server prize fetch failed, using defaults');
   }
 
-  const students = await getOrSeedFirestoreStudents();
-  const activeStudents = students.filter(
-    (s) => !s.managerParticipation && s.status !== 'pending' && s.status !== 'rejected'
-  );
-
-  const reports: PrizeReportItem[] = activeStudents.map((student) => {
-    const qualifyingMilestones = DEFAULT_PRIZE_MILESTONES.filter(
-      (m) => student.points >= m.points
-    );
-    const nextMilestone =
-      DEFAULT_PRIZE_MILESTONES.find((m) => student.points < m.points) || null;
-    const pointsNeeded = nextMilestone ? nextMilestone.points - student.points : 0;
-
-    return {
-      student,
-      qualifyingMilestones,
-      nextMilestone,
-      pointsNeeded,
-    };
-  });
-
   return {
-    reports,
-    milestones: DEFAULT_PRIZE_MILESTONES,
+    reports: [],
+    milestones: [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points),
   };
 }
 
@@ -625,7 +685,7 @@ export async function bulkImportStudentsApi(students: Partial<Student>[]) {
   }));
 
   for (const st of imported) {
-    await setDoc(doc(db, 'students', st.id), st);
+    await setDoc(doc(db, 'students', st.id), stripUndefinedValues(st));
   }
 
   const allStudents = await getOrSeedFirestoreStudents();
@@ -671,7 +731,8 @@ export async function addStudentApi(student: Partial<Student>) {
     };
   }
 
-  await setDoc(doc(db, 'students', targetStudent.id), targetStudent);
+  const sanitizedStudent = stripUndefinedValues(targetStudent) as Student;
+  await setDoc(doc(db, 'students', sanitizedStudent.id), sanitizedStudent);
   const updatedStudents = await getOrSeedFirestoreStudents();
   return { success: true, student: targetStudent, students: updatedStudents };
 }
@@ -1567,7 +1628,16 @@ export async function deleteManagerApi(
 
   try {
     const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
-    await deleteDoc(doc(db, 'managers', safeId));
+    const managerSnap = await getDocs(collection(db, 'managers'));
+    const matches = managerSnap.docs.filter((docSnap) => {
+      const data = docSnap.data() as Partial<Manager>;
+      return docSnap.id === safeId || (data.email || '').trim().toLowerCase() === cleanEmail;
+    });
+
+    if (matches.length > 0) {
+      await Promise.all(matches.map((docSnap) => deleteDoc(docSnap.ref)));
+    }
+
     const managers = await fetchManagersApi();
     return { success: true, managers };
   } catch (e: any) {
@@ -1595,8 +1665,16 @@ export async function deleteManagerApi(
     console.info('[API] Falling back to seeded Firestore for deleteManagerApi');
   }
 
-  const safeId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
-  await deleteDoc(doc(db, 'managers', safeId));
+  const managerSnap = await getDocs(collection(db, 'managers'));
+  const matches = managerSnap.docs.filter((docSnap) => {
+    const data = docSnap.data() as Partial<Manager>;
+    return docSnap.id === cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_') || (data.email || '').trim().toLowerCase() === cleanEmail;
+  });
+
+  if (matches.length > 0) {
+    await Promise.all(matches.map((docSnap) => deleteDoc(docSnap.ref)));
+  }
+
   const managers = await fetchManagersApi();
   return { success: true, managers };
 }

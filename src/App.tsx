@@ -28,7 +28,12 @@ export default function App() {
 
   // Default to null if no user is saved in localStorage, presenting the Entry Screen to newcomers!
   const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(() => {
-    return localStorage.getItem('halacha_current_user') || null;
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('halacha_current_user') : null;
+      return saved === 'admin' || saved ? saved : null;
+    } catch {
+      return null;
+    }
   });
   const [todayDate, setTodayDate] = useState(() => getTodayInJerusalem());
   const [selectedDate, setSelectedDate] = useState<string>(todayDate);
@@ -53,7 +58,7 @@ export default function App() {
       setStudents(sData);
       setHalachot(hData);
       setLeaderboardData(lData);
-      setPrizeReports(pData.reports);
+      setPrizeReports(Array.isArray(pData?.reports) ? pData.reports : []);
 
       // Validate saved student ID
       if (
@@ -87,6 +92,22 @@ export default function App() {
   useEffect(() => {
     setSelectedDate(todayDate);
   }, [todayDate]);
+
+  useEffect(() => {
+    if (currentStudentId === null || currentStudentId === 'admin') {
+      return;
+    }
+
+    if (!students.some((student) => student.id === currentStudentId)) {
+      setCurrentStudentId(null);
+      try {
+        window.localStorage.removeItem('halacha_current_user');
+      } catch {
+        // Ignore storage access errors in restricted environments.
+      }
+      setActiveTab('study');
+    }
+  }, [currentStudentId, students]);
 
   const handleResetDemo = async () => {
     if (confirm('האם לאפס את כל הנתונים, הניקוד והחידונים למצב ההתחלתי?')) {
@@ -174,7 +195,9 @@ export default function App() {
     );
   }
 
-  const currentStudent = students.find((s) => s.id === currentStudentId) || (currentStudentId !== 'admin' ? students[0] : null);
+  const currentStudent = currentStudentId === 'admin'
+    ? null
+    : students.find((student) => student.id === currentStudentId) ?? null;
   const studentDateWindow = new Set(getStudentQuizDateWindow(todayDate));
   const dashboardHalachot = currentStudentId === 'admin'
     ? halachot

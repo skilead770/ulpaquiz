@@ -5,8 +5,12 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { FIREBASE_PROJECT_ID } from './config';
 
 // Safety Check: Ensure the app is running against the correct Firebase project
+if (!firebaseConfig.projectId) {
+  throw new Error('[Firebase] Missing firebase config projectId. Check firebase-applet-config.json.');
+}
+
 if (firebaseConfig.projectId !== FIREBASE_PROJECT_ID) {
-  console.error(
+  throw new Error(
     `[Firebase] PROJECT ID MISMATCH! Expected "${FIREBASE_PROJECT_ID}" but loaded "${firebaseConfig.projectId}". ` +
     `Please ensure you are using the correct Firebase project.`
   );

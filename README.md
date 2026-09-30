@@ -1,172 +1,157 @@
-# UlpaQuiz Migration Plan
+# UlpaQuiz
 
-## Goal
-Move the app from the current Node.js/Express setup to a Firebase-based architecture that remains compatible with a no-credit-card, no-billing setup.
-
-This version is also aligned with the mobile-optimized app flow and keeps the project focused on a lightweight, free-tier-safe design.
+UlpaQuiz is a daily Halacha learning and quiz platform for students, managers, and administrators. Students complete daily study steps, answer short quizzes, earn points, and compete on leaderboards. Managers and admins can monitor participation, approve registrations, edit prizes, reset individual quiz attempts, and adjust scoring and milestones.
 
 ---
 
-## Why the migration is needed
-The current app still depends on a custom server and a more traditional backend model. The long-term target is to reduce operational complexity and move the application to Firebase services that support hosting, auth, and data access without requiring a paid backend.
+## What this app does
+
+- Daily Halacha learning flow with structured steps
+- Short quiz rounds with daily scoring
+- Leaderboards for classes and students
+- Manager and admin roles with role-based visibility
+- Student registration and manager assignment flow
+- Prize milestone editing and leaderboard rewards
+- Data review and score resets for specific dates
+- Gmail/Google-backed account validation for secure access
 
 ---
 
-## Safe target architecture
+## Tech stack
 
-### Current model
-Frontend -> Express server -> data logic -> local DB / Firestore sync
-
-### Target model
-Frontend -> Firebase Auth -> Firestore -> Firebase Hosting
-
-This gives us:
-- simpler deployment
-- no custom server to maintain
-- easier mobile UX
-- safer access control through Firestore Rules
-
----
-
-## No-credit-card rule
-This migration must stay on the Firebase free-tier path.
-
-The following are allowed:
+- React + TypeScript + Vite
 - Firebase Hosting
-- Firebase Authentication
-- Firestore
-- Firebase project configuration without billing enabled
-
-The following should be avoided unless they are clearly confirmed to remain free-tier-safe:
-- Cloud Functions
-- Cloud Storage
-- paid APIs or external services
-- any product that triggers a billing requirement
-- advanced services that would force a Google payment method
-
-> The simplest and safest migration path is: frontend + Firebase Auth + Firestore + Hosting only.
+- Firebase Authentication and Firestore
+- Node/Express server fallback for admin operations
+- Tailwind-inspired UI patterns and React components
 
 ---
 
-## Mobile-first guidance
-Because the app has been adjusted for mobile phones, the migration should prioritize:
-- responsive screens
-- reduced server dependency
-- fast frontend data loading
-- mobile-friendly auth flow
-- simplified interaction patterns
+## Project structure
 
-This means the final app should feel like a mobile app running on Firebase rather than a desktop web app with a hidden backend.
-
----
-
-## Migration phases
-
-### Phase 1: Audit current server responsibilities
-Review the logic in the existing backend and classify each action as one of the following:
-- public data
-- user-scoped data
-- admin-only data
-- one-time migration/admin utility
-
-This project includes features such as:
-- student registration and approval
-- daily halacha content
-- quiz submissions
-- leaderboard calculations
-- invitation validation
-- admin management
-
-These need to be mapped into Firebase collections and rules.
-
-### Phase 2: Move data to Firestore collections
-Use collections such as:
-- students
-- halachot
-- managers
-- invitations
-- classes
-- settings
-
-Focus on a data model that matches the app, not just a direct copy of the old server API.
-
-### Phase 3: Replace backend auth with Firebase Auth
-Use Firebase Authentication as the primary identity layer.
-
-The final app should:
-- sign in with Google or email auth
-- read the authenticated user identity
-- use Firestore Rules to decide what the user can access
-- avoid custom backend session checks for normal app operations
-
-### Phase 4: Enforce access via Firestore Security Rules
-This is critical to secure the app without a custom backend.
-
-The rules should enforce:
-- only approved students can access their own data
-- only admins can manage students, invitations, and classes
-- halacha content is readable by students but protected from unauthorized writes
-- submissions can only be made by the relevant student
-
-### Phase 5: Remove all billing-triggering dependencies
-Before final deployment:
-- avoid adding paid Firebase features
-- avoid custom server hosting
-- avoid external services that require card verification
-- keep the deployment in Firebase Hosting + Firestore + Auth only
+```text
+ulpaquiz/
+├── src/
+│   ├── components/
+│   ├── lib/
+│   ├── data/
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── types.ts
+├── server.ts
+├── firestore.rules
+├── firebase.json
+├── vite.config.ts
+├── package.json
+├── README-for-developers.md
+├── firestore.indexes.json
+└── public/
+```
 
 ---
 
-## Project-specific notes
-This project already has Firebase wiring and an app structure in place, so the migration should reuse the existing Firebase client setup rather than creating a second generic Firebase layer.
+## Local development
 
-The key idea is not to recreate the old REST API exactly, but to replace server-side logic with:
-- Firebase Auth for identity
-- Firestore documents for state
-- rules for authorization
-- frontend logic for app behavior
-
----
-
-## Deployment path without a credit card
-The deployment should remain in a free-tier-safe setup:
+Install dependencies:
 
 ```bash
 npm install
-npm run build
-firebase login --no-localhost
-firebase use <your-project-id>
-firebase deploy --only hosting
 ```
 
-Important:
-- do not enable billing
-- do not add paid services
-- keep all production logic inside Firebase Hosting + Auth + Firestore
+Run the app locally:
+
+```bash
+npm run dev
+```
+
+Build the frontend bundle:
+
+```bash
+npm run build:firebase
+```
+
+Run the full production build:
+
+```bash
+npm run build
+```
 
 ---
 
-## Final acceptance criteria
-The migration is successful only when all of the following are true:
+## Firebase deployment
 
-- no custom server is required in production
-- app data is stored in Firestore
-- user access is enforced by Firebase Auth + rules
-- the app works smoothly on mobile devices
-- no credit card or billing setup is required
-- the project remains within a free-tier-safe Firebase setup
+Login with the Firebase CLI:
+
+```bash
+npm run firebase:login
+```
+
+Deploy hosting:
+
+```bash
+npm run deploy:hosting
+```
+
+This project is configured to deploy the frontend to Firebase Hosting and uses the local Firestore/server fallback for admin tasks during the transition.
 
 ---
 
-## Recommendation
-The safest final version of this app is:
+## Security and auth notes
 
-- React frontend on Firebase Hosting
-- Firebase Authentication for login
-- Firestore for data storage
-- Firestore Rules for authorization
-- mobile-first UX
-- no paid backend
-- no credit card needed
+This app has recently been hardened around Google/Gmail-only access controls and admin permissions. Important protections include:
 
-This is the version that best matches the requirement and the current mobile-adjusted app direction.
+- strict Gmail / Google email validation before allowing access
+- admin-only checks for sensitive operations
+- manager role validation to prevent unauthorized admin actions
+- sanitization of Firestore writes before saving data
+- guardrails for undefined values and stale/invalid manager records
+
+This is especially important because the app handles student data, quiz tracking, and manager privileges.
+
+---
+
+## Recent fixes included in active development
+
+The current branch includes work for:
+
+- Google/Gmail security validation improvements
+- manager and participant visibility fixes
+- manager reset-score flow for a specific date
+- prize editing and milestone updates
+- quiz scoring adjustments and label clarity
+- admin crash fixes and runtime error prevention
+- Firestore undefined-field sanitization
+- manager deletion reliability across normalized and legacy records
+- broader admin UX stability and safer rendering paths
+
+---
+
+## Developer notes
+
+For more operating details and role-specific implementation notes, see:
+
+- [README-for-developers.md](README-for-developers.md)
+
+The project is still evolving around Firebase-backed admin operations, role permissions, and secure student data workflows. Keep security and data validation in mind whenever editing Firestore writes or manager access logic.
+
+---
+
+## Recommended workflow before pushing
+
+Before shipping changes:
+
+```bash
+npm run build:firebase
+npm run deploy:hosting
+```
+
+Then verify in the browser that the manager/admin area loads correctly and that any data reset or manager-delete flow still behaves as expected.
+
+---
+
+## Notes for maintainers
+
+- Always validate Gmail and admin-role checks before enabling manager-level actions.
+- Avoid writing undefined values to Firestore documents.
+- When modifying delete logic, check both the normalized doc ID and the stored email value.
+- Use a hard refresh after deploy to avoid stale cached frontend bundles.

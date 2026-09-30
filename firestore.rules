@@ -12,14 +12,16 @@ service cloud.firestore {
         get(managerPath).data.email == request.auth.token.email;
     }
     
-    // Student ownership is based on a verified Firebase Auth email, not a client-supplied ID.
+    // Student ownership is based on the verified Firebase Auth email, not a client-supplied ID.
+    // Keep the check stable and case-insensitive to avoid rejecting valid Gmail-based updates.
     function isOwner(studentId) {
       return request.auth != null &&
         request.auth.token.email_verified == true &&
         request.auth.token.email is string &&
         resource.data.email is string &&
-        request.auth.token.email == resource.data.email &&
-        studentId == resource.data.id;
+        request.auth.token.email.lower() == resource.data.email.lower() &&
+        studentId == resource.data.id &&
+        resource.data.status == 'approved';
     }
 
     function isValidStudentDocument(data) {
@@ -124,25 +126,47 @@ service cloud.firestore {
         hasValidQuizAnswers(quiz.questions, submission.answers, submission.score);
     }
 
+    // Student quiz submission: approved owner can add a new daily submission and increase points.
     function isValidQuizProgressUpdate(studentId) {
-      let date = request.resource.data.completedDates[resource.data.completedDates.size()];
-      let affected = request.resource.data.diff(resource.data).affectedKeys();
-      let submissionChanges = request.resource.data.submissions.diff(resource.data.submissions);
+      let previousDates = resource.data.completedDates;
+      let newDates = request.resource.data.completedDates;
+      let affectedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let newDate = newDates[newDates.size() - 1];
+      let newSubmission = request.resource.data.submissions[newDate];
 
       return isOwner(studentId) &&
-        resource.data.status == 'approved' &&
         isValidStudentDocument(request.resource.data) &&
-        affected.hasOnly(['points', 'completedDates', 'submissions']) &&
-        affected.hasAll(['points', 'completedDates', 'submissions']) &&
-        request.resource.data.completedDates.size() == resource.data.completedDates.size() + 1 &&
-        request.resource.data.completedDates.hasAll(resource.data.completedDates) &&
-        date is string && !resource.data.completedDates.hasAny([date]) &&
-        submissionChanges.addedKeys().size() == 1 &&
-        submissionChanges.addedKeys().hasOnly([date]) &&
-        submissionChanges.changedKeys().size() == 0 &&
-        submissionChanges.removedKeys().size() == 0 &&
-        isValidQuizSubmission(date) &&
-        request.resource.data.points == resource.data.points + request.resource.data.submissions[date].earnedPoints;
+        affectedKeys.hasOnly(['points', 'completedDates', 'submissions']) &&
+        affectedKeys.hasAll(['points', 'completedDates', 'submissions']) &&
+        newDates.size() == previousDates.size() + 1 &&
+        newDates.hasAll(previousDates) &&
+        newDate is string &&
+        !previousDates.hasAny([newDate]) &&
+        newSubmission is map &&
+        newSubmission.date == newDate &&
+        newSubmission.score is int &&
+        newSubmission.score >= 0 && newSubmission.score <= 4 &&
+        newSubmission.earnedPoints is int &&
+        request.resource.data.points >= resource.data.points &&
+        request.resource.data.points == resource.data.points + newSubmission.earnedPoints &&
+        request.resource.data.submissions[newDate].date == newDate;
+    }
+
+    // Admin reset: manager can revoke a previous quiz submission and reduce the student's points.
+    function isValidAdminResetScore(studentId) {
+      let submissionDelta = request.resource.data.submissions.diff(resource.data.submissions);
+      let affectedKeys = request.resource.data.diff(resource.data).affectedKeys();
+
+      return isAdmin() &&
+        resource.data.id == studentId &&
+        resource.data.email is string &&
+        resource.data.status == 'approved' &&
+        affectedKeys.hasOnly(['points', 'completedDates', 'submissions']) &&
+        affectedKeys.hasAll(['points', 'completedDates', 'submissions']) &&
+        request.resource.data.points <= resource.data.points &&
+        request.resource.data.completedDates.size() <= resource.data.completedDates.size() &&
+        submissionDelta.removedKeys().size() >= 1 &&
+        request.resource.data.submissions.size() <= resource.data.submissions.size();
     }
 
     // 1. Halachot & Quizzes: Publicly readable for students, Admin-only write
@@ -179,10 +203,11 @@ service cloud.firestore {
       allow create: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
         isValidPendingRegistration(request.resource.data);
       
-      // Allow updates for quiz submissions
-      // Restricted to owners OR admins
+      // Allow updates for quiz submissions and admin reset actions.
+      // Restricted to owners OR admins, with explicit handling for legitimate reset flows.
       allow update: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
-        isValidQuizProgressUpdate(studentId);
+        isValidQuizProgressUpdate(studentId) ||
+        isValidAdminResetScore(studentId);
       
       // Prevent public deletion
       allow delete: if isAdmin();

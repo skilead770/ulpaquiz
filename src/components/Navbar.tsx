@@ -56,6 +56,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-200/60 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          {!isAdmin && (
+            <div className="w-full bg-gradient-to-r from-amber-700 via-yellow-500 to-amber-700 border-b border-amber-900/20 shadow-sm">
+              <div className="mx-auto max-w-7xl px-3 py-2.5 text-center">
+                <p className="font-black text-[11px] sm:text-sm md:text-base text-white tracking-wide leading-relaxed">
+                  הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי"ד
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between h-16 sm:h-18 gap-2">
             {/* Brand & Logo */}
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
