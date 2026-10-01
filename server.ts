@@ -428,21 +428,58 @@ async function startServer() {
     next();
   };
 
+  const requireApprovedAccount = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const verified = await verifyGoogleToken(token);
+
+    if (!verified?.email || !verified.emailVerified) {
+      return res.status(401).json({ error: 'נדרשת התחברות באמצעות חשבון Google מאומת.' });
+    }
+
+    const verifiedEmail = verified.email.trim().toLowerCase();
+    const isManager = (db.managers || INITIAL_MANAGERS).some(
+      (manager) => manager.email.trim().toLowerCase() === verifiedEmail
+    );
+    const isApprovedStudent = db.students.some(
+      (student) =>
+        student.status === 'approved' &&
+        student.email?.trim().toLowerCase() === verifiedEmail
+    );
+
+    if (!isManager && !isApprovedStudent) {
+      return res.status(403).json({ error: 'החשבון אינו רשום ומאושר במערכת.' });
+    }
+
+    (req as any).authenticatedUser = { email: verifiedEmail, isManager };
+    next();
+  };
+
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
 
   // Get all students
-  app.get('/api/students', (req, res) => {
-    res.json(db.students.filter((student) => !student.managerParticipation));
+  app.get('/api/students', requireApprovedAccount, (req, res) => {
+    const authenticatedUser = (req as any).authenticatedUser as { email: string; isManager: boolean };
+    const students = db.students.filter((student) => !student.managerParticipation);
+    res.json(
+      authenticatedUser.isManager
+        ? students
+        : students.filter((student) => student.email?.trim().toLowerCase() === authenticatedUser.email)
+    );
   });
 
   // Get single student
-  app.get('/api/students/:id', (req, res) => {
+  app.get('/api/students/:id', requireApprovedAccount, (req, res) => {
     const student = db.students.find((s) => s.id === req.params.id);
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
+    }
+    const authenticatedUser = (req as any).authenticatedUser as { email: string; isManager: boolean };
+    if (!authenticatedUser.isManager && student.email?.trim().toLowerCase() !== authenticatedUser.email) {
+      return res.status(403).json({ error: 'אין הרשאה לצפות בפרטי תלמידה אחרת.' });
     }
     res.json(student);
   });
@@ -728,6 +765,7 @@ async function startServer() {
       }
 
       let email: string | undefined;
+      let emailVerified = false;
       let name: string | undefined;
       let picture: string | undefined;
 
@@ -736,6 +774,7 @@ async function startServer() {
         try {
           const decoded = await authAdmin.verifyIdToken(idToken);
           email = decoded.email;
+          emailVerified = decoded.email_verified === true;
           name = decoded.name;
           picture = decoded.picture;
         } catch (verifyErr: any) {
@@ -750,6 +789,7 @@ async function startServer() {
           if (googleRes.ok) {
             const tokenData = await googleRes.json();
             email = tokenData.email;
+            emailVerified = tokenData.email_verified === true || tokenData.email_verified === 'true';
             name = tokenData.name;
             picture = tokenData.picture;
           }
@@ -758,25 +798,7 @@ async function startServer() {
         }
       }
 
-      // 3. Robust fallback: Decode JWT payload directly (Firebase tokens are standard JWTs signed by Google)
-      if (!email && idToken.includes('.')) {
-        try {
-          const parts = idToken.split('.');
-          if (parts.length >= 2) {
-            const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-            const decodedJson = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
-            if (decodedJson && decodedJson.email) {
-              email = decodedJson.email;
-              name = name || decodedJson.name || decodedJson.display_name;
-              picture = picture || decodedJson.picture;
-            }
-          }
-        } catch (jwtErr) {
-          console.error('[JWT Decode Fallback] Failed to parse JWT token parts:', jwtErr);
-        }
-      }
-
-      if (!email) {
+      if (!email || !emailVerified) {
         return res.status(401).json({ error: 'אימות זהות Google נכשל. הטוקן אינו תקף או שפג תוקפו.' });
       }
 
@@ -799,19 +821,16 @@ async function startServer() {
       }
 
       // Check if user is an approved Student
-      const cleanUsername = cleanEmail.split('@')[0];
-      const student = db.students.find((s) => {
-        const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-        const sUser = s.username ? s.username.trim().toLowerCase() : '';
-        return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
-      });
+      const student = db.students.find(
+        (s) => s.email?.trim().toLowerCase() === cleanEmail
+      );
 
       if (!student) {
         return res.json({
           success: false,
           role: 'unauthorized',
           email: cleanEmail,
-          name: name || cleanUsername,
+          name: name || cleanEmail.split('@')[0],
           picture,
           message: `חשבון Google זה (${cleanEmail}) אינו רשום עדיין במערכת. אנא הרשמי למבצע.`,
         });
@@ -837,6 +856,14 @@ async function startServer() {
         });
       }
 
+      if (student.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          role: 'unauthorized',
+          error: 'הרשמתך עדיין אינה מאושרת.',
+        });
+      }
+
       // Approved student!
       return res.json({
         success: true,
@@ -851,61 +878,6 @@ async function startServer() {
       console.error('[Auth] verify-google error:', err);
       res.status(500).json({ error: 'שגיאה בעיבוד אימות Google' });
     }
-  });
-
-  // Login by Gmail / Email
-  app.post('/api/auth/login-by-email', (req, res) => {
-    const { email } = req.body;
-    const gCheck = validateGmail(email || '');
-    if (!gCheck.valid || !gCheck.email) {
-      return res.status(400).json({ error: gCheck.error });
-    }
-    const cleanEmail = gCheck.email;
-    const cleanUsername = cleanEmail.split('@')[0];
-
-    // Check if manager
-    const manager = (db.managers || INITIAL_MANAGERS).find(
-      (m) => m.email.toLowerCase() === cleanEmail
-    );
-    if (manager) {
-      return res.json({
-        success: true,
-        isManager: true,
-        role: 'admin',
-        manager,
-        message: `שלום מנהל המערכת (${manager.name || cleanEmail})! מתחברים לממשק הניהול...`,
-      });
-    }
-
-    const student = db.students.find((s) => {
-      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-      const sUser = s.username ? s.username.trim().toLowerCase() : '';
-      return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
-    });
-
-    if (!student) {
-      return res.status(404).json({
-        error: 'לא נמצאה תלמידה רשומה עם כתובת Gmail זו. נא להירשם תחילה.',
-      });
-    }
-
-    // Check approval status: Pending students CANNOT enter yet!
-    if (student.status === 'pending') {
-      return res.status(403).json({
-        status: 'pending',
-        error: 'בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.',
-        studentName: student.fullName,
-      });
-    }
-
-    if (student.status === 'rejected') {
-      return res.status(403).json({
-        status: 'rejected',
-        error: 'בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.',
-      });
-    }
-
-    res.json({ success: true, student });
   });
 
   // Self-Registration for Students (Simple: Full Name + GMAIL) - REQUIRES ADMIN APPROVAL!
@@ -952,7 +924,7 @@ async function startServer() {
           success: true,
           alreadyRegistered: true,
           status: 'approved',
-          message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+          message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
           student: existingStudent,
         });
       } else if (existingStudent.status === 'pending') {
@@ -960,7 +932,7 @@ async function startServer() {
           success: true,
           alreadyRegistered: true,
           status: 'pending',
-          message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+          message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
           student: existingStudent,
         });
       } else {
@@ -1023,7 +995,7 @@ async function startServer() {
       success: true,
       status: 'pending',
       autoApproved: false,
-      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
+      message: 'בקשת ההרשמה נקלטה בהצלחה וממתינה לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
       student: newStudent,
     });
   });

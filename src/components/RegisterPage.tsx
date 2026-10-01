@@ -161,6 +161,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <br />
             לאחר הרשמתך, בקשת ההרשמה תועבר לאישור צוות ההנהלה. לאחר האישור תוכלו לצבור נקודות ולזכות בפרסים!
           </p>
+          <p className="inline-flex rounded-full border border-amber-900/20 bg-amber-900/15 px-3 py-1.5 text-xs sm:text-sm font-bold text-amber-950">
+            הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי״ד
+          </p>
         </div>
       </div>
 
@@ -222,7 +225,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           }`}>
             {isAutoApprovedResult
               ? '🎉 איזה יופי! ההרשמה שלך אושרה מידית. כעת תוכל להיכנס ולפתור את החידון היומי ולהוביל את הלוח!'
-              : '💡 ברגע שמנהלת האולפנה תאשר את הבקשה, השם שלך יופיע ברשימת התלמידות ותוכלי להתחיל ללמוד ולצבור נקודות!'}
+                : '💡 לאחר שמנהלת האולפנה תאשר את הבקשה, תוכלי להתחבר באמצעות חשבון Google הרשום במערכת.'}
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3 pt-2">

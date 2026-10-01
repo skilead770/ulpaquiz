@@ -18,20 +18,18 @@ import {
   Lock,
 } from 'lucide-react';
 import { Student, DEFAULT_CLASSES } from '../types';
-import { registerStudentApi, loginByEmailApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
+import { registerStudentApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
-import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail, verifyBackendToken } from '../lib/authService';
+import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 
 interface EntryScreenProps {
-  onLoginSuccess: (student: Student | 'admin', token?: string) => void;
-  students: Student[];
+  onLoginSuccess: (student: Student | 'admin', token: string) => void;
 }
 
 export const EntryScreen: React.FC<EntryScreenProps> = ({
   onLoginSuccess,
-  students,
 }) => {
   const [mode, setMode] = useState<'register' | 'login' | 'pending' | 'admin_login'>('register');
 
@@ -51,9 +49,6 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     });
   }, []);
 
-  // Login field
-  const [loginEmail, setLoginEmail] = useState('');
-
   // Pending approval tracked student
   const [pendingStudent, setPendingStudent] = useState<{
     fullName: string;
@@ -72,12 +67,6 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     if (!gmail.trim()) return null;
     return validateGmailAddress(gmail);
   }, [gmail]);
-
-  // Real-time Gmail validation for the login field
-  const loginGmailValidation = useMemo(() => {
-    if (!loginEmail.trim()) return null;
-    return validateGmailAddress(loginEmail);
-  }, [loginEmail]);
 
   // Helper to auto-complete @gmail.com
   const handleAutoCompleteDomain = (
@@ -116,8 +105,13 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
 
       const userEmail = secureCheck.normalizedEmail;
 
-      // First migration chunk: prefer direct Firestore-based app auth resolution.
+      // Resolve the signed-in Google account to an approved app role.
       const resolved = await resolveFirebaseUserSession(firebaseUser);
+
+      if (resolved.error === 'DIRECT_AUTH_FAILED') {
+        setError('לא ניתן לאמת את החשבון כרגע. בדקי את החיבור ונסי שוב.');
+        return;
+      }
 
       if (resolved.role === 'admin') {
         setSuccessMsg(`שלום ${resolved.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
@@ -165,35 +159,6 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
         return;
       }
 
-      // Fallback only if direct Firebase resolution fails unexpectedly.
-      try {
-        const verifyRes = await verifyBackendToken(idToken);
-        if (verifyRes.role === 'admin') {
-          setSuccessMsg(`שלום ${verifyRes.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
-          setTimeout(() => {
-            onLoginSuccess('admin', idToken);
-          }, 600);
-          return;
-        }
-        if (verifyRes.role === 'student' && verifyRes.student) {
-          setSuccessMsg(`שלום ${verifyRes.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
-          setTimeout(() => {
-            onLoginSuccess(verifyRes.student!, idToken);
-          }, 500);
-          return;
-        }
-        if (verifyRes.role === 'pending') {
-          setPendingStudent({
-            fullName: verifyRes.name || verifyRes.student?.fullName || '',
-            email: userEmail,
-          });
-          setMode('pending');
-          return;
-        }
-        setError(verifyRes.error || 'אימות Google נכשל');
-      } catch (fallbackErr: any) {
-        throw new Error(fallbackErr?.message || resolved.message || 'אימות Google נכשל');
-      }
     } catch (err: any) {
       console.error('[Google SSO Error]', err);
       if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed')) {
@@ -248,11 +213,8 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       // Crucial requirement: Student does NOT enter immediately!
       // Must wait for admin approval.
       if (res.status === 'approved' && res.student) {
-        // Was already approved previously
-        setSuccessMsg('שלום שוב! הרשמתך כבר מאושרת במערכת. מתחברים...');
-        setTimeout(() => {
-          onLoginSuccess(res.student!);
-        }, 700);
+        setMode('login');
+        setSuccessMsg('ההרשמה שלך כבר מאושרת. כדי להיכנס, התחברי עם חשבון Google הרשום במערכת.');
       } else {
         // Pending approval screen
         setPendingStudent({
@@ -269,57 +231,6 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     }
   };
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccessMsg(null);
-    setStatusCheckMsg(null);
-
-    const validation = validateGmailAddress(loginEmail);
-    if (!validation.isValid || !validation.normalizedEmail) {
-      setError(validation.error || 'נא להזין כתובת Gmail תקינה');
-      return;
-    }
-
-    // Direct managers to secure SSO
-    if (validation.normalizedEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      setMode('admin_login');
-      setError('ממשק המנהל מאובטח ודורש זיהוי Google SSO מלא. לחצי על כפתור ההתחברות המאובטח להלן.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const res = await loginByEmailApi(validation.normalizedEmail);
-      if (res.isManager) {
-        setMode('admin_login');
-        setError('ממשק המנהל מאובטח ודורש זיהוי Google SSO מלא.');
-        return;
-      }
-      if (res.student) {
-        setSuccessMsg(`שלום ${res.student.fullName}! מתחברים למערכת...`);
-        setTimeout(() => {
-          onLoginSuccess(res.student!);
-        }, 500);
-      }
-    } catch (err: any) {
-      console.error(err);
-      const errMsg = err.message || '';
-      if (errMsg.includes('ממתינה לאישור')) {
-        // Transition to pending state with informative screen
-        setPendingStudent({
-          fullName: '',
-          email: validation.normalizedEmail,
-        });
-        setMode('pending');
-      } else {
-        setError(errMsg || 'לא נמצאה תלמידה עם כתובת זו. האם נרשמת בעבר?');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Check approval status in real-time
   const handleCheckPendingStatus = async () => {
     if (!pendingStudent?.email) return;
@@ -328,10 +239,9 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     try {
       const res = await checkStudentStatusApi(pendingStudent.email);
       if (res.registered && res.status === 'approved' && res.student) {
-        setStatusCheckMsg('מזל טוב! הרשמתך אושרה על ידי המנהל! מתחברים...');
-        setTimeout(() => {
-          onLoginSuccess(res.student!);
-        }, 800);
+        setSuccessMsg('מזל טוב! הרשמתך אושרה. כעת התחברי באמצעות חשבון Google הרשום במערכת.');
+        setStatusCheckMsg(null);
+        setMode('login');
       } else if (res.registered && res.status === 'rejected') {
         setStatusCheckMsg('בקשת ההרשמה נדחתה. נא לפנות להנהלת האולפנה לבירור.');
       } else {
@@ -384,6 +294,9 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               </h1>
               <p className="text-xs sm:text-sm text-amber-200/90 font-medium mt-1">
                 לימוד יומי קצר, חידון חוויתי וצבירת נקודות לפרסים יקרי ערך
+              </p>
+              <p className="mt-3 text-xs sm:text-sm font-bold text-yellow-200">
+                הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי״ד
               </p>
             </div>
           </div>
@@ -532,7 +445,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   הצטרפות פשוטה למבצע
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  הזיני שם מלא, בחרי כיתה וכתובת Gmail. לאחר אישור קצר של המנהל תוכלי להתחיל!
+                  הזיני שם מלא, בחרי כיתה וכתובת Gmail. לאחר אישור המנהל, התחברי באמצעות חשבון Google הרשום במערכת.
                 </p>
               </div>
 
@@ -706,23 +619,23 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 text-[11px] text-amber-900 leading-relaxed flex items-start gap-1.5">
                 <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                 <span>
-                  <strong>לתשומת ליבך:</strong> לאחר שליחת הטופס, הרשמתך תועבר לאישור הנהלת האולפנה. תוכלי להתחבר מיד כשהמנהל יאשר את הבקשה.
+                  <strong>לתשומת ליבך:</strong> לאחר אישור ההרשמה, התחברי באמצעות חשבון Google הרשום במערכת.
                 </span>
               </div>
             </form>
           )}
 
           {/* ====================================================
-              MODE 2: RETURNING STUDENT LOGIN (BY GMAIL)
+              MODE 2: REGISTERED STUDENT LOGIN (GOOGLE SSO)
           ==================================================== */}
           {mode === 'login' && (
-            <form onSubmit={handleLoginSubmit} className="space-y-5">
+            <div className="space-y-5">
               <div className="text-center pb-1">
                 <h2 className="text-base sm:text-lg font-extrabold text-amber-950 font-['Heebo']">
                   שלום שוב! כניסה לתלמידה רשומה
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  התחברי ישירות עם חשבון ה-Google שלך או הזיני כתובת Gmail
+                  הכניסה זמינה רק לתלמידות שאושרו, באמצעות חשבון Google הרשום במערכת.
                 </p>
               </div>
 
@@ -755,109 +668,10 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                     />
                   </svg>
                 )}
-                <span>כניסה מהירה עם Google (SSO)</span>
+                <span>כניסה מאובטחת עם Google</span>
               </button>
 
-              <div className="relative flex py-1 items-center">
-                <div className="grow border-t border-amber-200"></div>
-                <span className="shrink mx-3 text-[11px] font-bold text-amber-800/80 bg-white px-2">
-                  או כניסה לפי כתובת GMAIL
-                </span>
-                <div className="grow border-t border-amber-200"></div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-extrabold text-amber-950 flex items-center gap-1.5">
-                    <Mail className="w-4 h-4 text-amber-700" />
-                    <span>כתובת ה-GMAIL שלך</span>
-                    <span className="text-rose-500">*</span>
-                  </label>
-
-                  {loginEmail.trim() && !loginEmail.includes('@') && (
-                    <button
-                      type="button"
-                      onClick={() => handleAutoCompleteDomain(loginEmail, setLoginEmail)}
-                      className="text-[11px] font-bold text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
-                    >
-                      + הוסף @gmail.com
-                    </button>
-                  )}
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    dir="ltr"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="yourname@gmail.com"
-                    className={`w-full p-3 pl-9 rounded-2xl border text-sm font-bold text-slate-800 font-mono focus:ring-2 focus:outline-hidden transition-all shadow-xs text-left ${
-                      loginGmailValidation === null
-                        ? 'border-amber-300/80 focus:ring-amber-500'
-                        : loginGmailValidation.isValid
-                        ? 'border-emerald-400 bg-emerald-50/20 focus:ring-emerald-500 text-emerald-950'
-                        : 'border-rose-300 bg-rose-50/20 focus:ring-rose-400'
-                    }`}
-                  />
-                  {loginGmailValidation?.isValid && (
-                    <div className="absolute left-3 top-3.5 text-emerald-600">
-                      <Check className="w-4 h-4" />
-                    </div>
-                  )}
-                </div>
-
-                {loginGmailValidation && !loginGmailValidation.isValid && (
-                  <p className="text-[11px] text-rose-600 font-bold">
-                    {loginGmailValidation.error}
-                  </p>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3.5 px-6 rounded-2xl font-extrabold text-sm sm:text-base text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-              >
-                {isLoading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <LogIn className="w-4 h-4" />
-                    <span>כניסה ללימוד היומי</span>
-                  </>
-                )}
-              </button>
-
-              {/* Sample test students */}
-              {students && students.length > 0 && (
-                <div className="pt-3 border-t border-amber-100">
-                  <p className="text-[11px] font-extrabold text-amber-900 mb-2 text-center">
-                    תלמידות מאושרות לדוגמה (לבדיקה בלחיצה):
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 justify-center max-h-24 overflow-y-auto p-1">
-                    {students
-                      .filter((st) => st.status === 'approved')
-                      .slice(0, 5)
-                      .map((st) => (
-                        <button
-                          key={st.id}
-                          type="button"
-                          onClick={() => {
-                            const eMail = st.email || `${st.username}@gmail.com`;
-                            setLoginEmail(eMail);
-                            onLoginSuccess(st);
-                          }}
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition-colors"
-                        >
-                          {st.fullName} ({st.className})
-                        </button>
-                      ))}
-                  </div>
-                </div>
-              )}
-            </form>
+            </div>
           )}
 
           {/* ====================================================

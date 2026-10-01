@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Student, DailyHalacha, LeaderboardData, PrizeReportItem, PrizeMilestone } from './types';
 import {
   fetchStudents,
@@ -8,8 +8,13 @@ import {
   resetDemoApi,
   setAuthToken,
   getOrCreateManagerParticipant,
+  subscribeToDailyQuizDedication,
 } from './lib/api';
-import { signOutSSO } from './lib/authService';
+import {
+  resolveFirebaseUserSession,
+  signOutSSO,
+  subscribeToAuth,
+} from './lib/authService';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { QuizModal } from './components/QuizModal';
@@ -25,16 +30,12 @@ export default function App() {
   const [halachot, setHalachot] = useState<DailyHalacha[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [prizeReports, setPrizeReports] = useState<PrizeReportItem[]>([]);
+  const [dailyQuizDedication, setDailyQuizDedication] = useState('');
 
-  // Default to null if no user is saved in localStorage, presenting the Entry Screen to newcomers!
-  const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(() => {
-    try {
-      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('halacha_current_user') : null;
-      return saved === 'admin' || saved ? saved : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const resolvedAuthUid = useRef<string | null>(null);
+  const authResolutionSequence = useRef(0);
   const [todayDate, setTodayDate] = useState(() => getTodayInJerusalem());
   const [selectedDate, setSelectedDate] = useState<string>(todayDate);
   const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
@@ -45,6 +46,11 @@ export default function App() {
   const [activeMilestoneAlert, setActiveMilestoneAlert] = useState<PrizeMilestone | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => subscribeToDailyQuizDedication(
+    setDailyQuizDedication,
+    (error) => console.error('[Firestore] Could not load the daily quiz dedication:', error)
+  ), []);
 
   const loadData = async () => {
     try {
@@ -59,17 +65,6 @@ export default function App() {
       setHalachot(hData);
       setLeaderboardData(lData);
       setPrizeReports(Array.isArray(pData?.reports) ? pData.reports : []);
-
-      // Validate saved student ID
-      if (
-        currentStudentId !== null &&
-        currentStudentId !== 'admin' &&
-        !sData.some((s) => s.id === currentStudentId)
-      ) {
-        // If not found, reset to entry screen
-        setCurrentStudentId(null);
-        localStorage.removeItem('halacha_current_user');
-      }
     } catch (e) {
       console.error('Error loading data', e);
     } finally {
@@ -78,8 +73,78 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [selectedDate]);
+    let isMounted = true;
+    const unsubscribe = subscribeToAuth((user) => {
+      const resolutionId = ++authResolutionSequence.current;
+      if (!isMounted) return;
+      if (!user) {
+        resolvedAuthUid.current = null;
+        setCurrentStudentId(null);
+        setManagerParticipant(null);
+        setAuthToken(null);
+        setIsAuthReady(true);
+        return;
+      }
+
+      void (async () => {
+        try {
+          const token = await user.getIdToken();
+          if (!isMounted || resolutionId !== authResolutionSequence.current) return;
+          setAuthToken(token);
+
+          if (resolvedAuthUid.current === user.uid) {
+            setIsAuthReady(true);
+            return;
+          }
+
+          const session = await resolveFirebaseUserSession(user);
+
+          if (!isMounted || resolutionId !== authResolutionSequence.current) return;
+
+          if (session.role === 'admin' && session.success) {
+            resolvedAuthUid.current = user.uid;
+            setCurrentStudentId('admin');
+            setActiveTab('admin');
+          } else if (
+            session.role === 'student' &&
+            session.success &&
+            session.student?.status === 'approved'
+          ) {
+            resolvedAuthUid.current = user.uid;
+            setCurrentStudentId(session.student.id);
+            setActiveTab('study');
+          } else {
+            resolvedAuthUid.current = null;
+            setCurrentStudentId(null);
+            setAuthToken(null);
+          }
+          setIsAuthReady(true);
+        } catch (error) {
+          console.error('[Auth] Could not restore the signed-in user session:', error);
+          if (isMounted && resolutionId === authResolutionSequence.current) {
+            resolvedAuthUid.current = null;
+            setCurrentStudentId(null);
+            setAuthToken(null);
+            setIsAuthReady(true);
+          }
+        }
+      })();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!currentStudentId) {
+      setIsLoading(false);
+      return;
+    }
+    void loadData();
+  }, [currentStudentId, isAuthReady, selectedDate]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -93,26 +158,6 @@ export default function App() {
     setSelectedDate(todayDate);
   }, [todayDate]);
 
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-
-    if (currentStudentId === null || currentStudentId === 'admin') {
-      return;
-    }
-
-    if (!students.some((student) => student.id === currentStudentId)) {
-      setCurrentStudentId(null);
-      try {
-        window.localStorage.removeItem('halacha_current_user');
-      } catch {
-        // Ignore storage access errors in restricted environments.
-      }
-      setActiveTab('study');
-    }
-  }, [currentStudentId, isLoading, students]);
-
   const handleResetDemo = async () => {
     if (confirm('האם לאפס את כל הנתונים, הניקוד והחידונים למצב ההתחלתי?')) {
       try {
@@ -124,26 +169,23 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (user: Student | 'admin', token?: string) => {
+  const handleLoginSuccess = (user: Student | 'admin', token: string) => {
     const id = typeof user === 'string' ? user : user.id;
     setCurrentStudentId(id);
-    localStorage.setItem('halacha_current_user', id);
-    if (token) {
-      setAuthToken(token);
-    }
+    setAuthToken(token);
+    setIsLoading(true);
     setActiveTab(id === 'admin' ? 'admin' : 'study');
-    loadData();
   };
 
   const handleLogout = async () => {
     setCurrentStudentId(null);
     setManagerParticipant(null);
-    localStorage.removeItem('halacha_current_user');
+    resolvedAuthUid.current = null;
     setAuthToken(null);
     try {
       await signOutSSO();
-    } catch (e) {
-      // ignore
+    } catch (error) {
+      console.error('[Auth] Sign-out failed:', error);
     }
   };
 
@@ -176,7 +218,7 @@ export default function App() {
     setShowQuizModal(true);
   };
 
-  if (isLoading) {
+  if (!isAuthReady || (currentStudentId !== null && isLoading)) {
     return (
       <div className="min-h-screen bg-amber-50/40 flex items-center justify-center p-4">
         <div className="text-center space-y-3">
@@ -194,7 +236,6 @@ export default function App() {
     return (
       <EntryScreen
         onLoginSuccess={handleLoginSuccess}
-        students={students}
       />
     );
   }
@@ -220,6 +261,7 @@ export default function App() {
         onChangeTab={(tab) => setActiveTab(tab)}
         onResetDemo={handleResetDemo}
         onLogout={handleLogout}
+        dailyDedication={dailyQuizDedication}
       />
 
       {/* Main Content Area */}
@@ -263,6 +305,7 @@ export default function App() {
             prizeReports={prizeReports}
             onRefreshData={loadData}
             onManagerQuiz={handleManagerQuiz}
+            onDailyDedicationChange={setDailyQuizDedication}
           />
         )}
       </main>

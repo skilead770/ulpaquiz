@@ -1,9 +1,11 @@
 import {
   GoogleAuthProvider,
+  onIdTokenChanged,
   signInWithPopup,
   signOut as firebaseSignOut,
   User as FirebaseUser,
-  onAuthStateChanged,
+  browserLocalPersistence,
+  setPersistence,
 } from 'firebase/auth';
 import {
   collection,
@@ -73,6 +75,7 @@ export function validateSecureGoogleGmail(firebaseUser: FirebaseUser | null): {
  * Requests user profile, email and Drive readonly scope for importing documents.
  */
 export async function signInWithGoogleSSO(requestDriveScope = false): Promise<{ user: FirebaseUser; accessToken?: string }> {
+  await setPersistence(auth, browserLocalPersistence);
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({
     prompt: 'select_account',
@@ -119,6 +122,18 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
   const email = (firebaseUser?.email || '').trim().toLowerCase();
   const name = firebaseUser?.displayName || undefined;
   const picture = firebaseUser?.photoURL || undefined;
+
+  if (!firebaseUser) {
+    return {
+      success: false,
+      role: 'unauthorized',
+      email,
+      name,
+      picture,
+      message: 'לא נמצא חשבון Google מחובר.',
+      error: 'MISSING_USER',
+    };
+  }
 
   const secureCheck = validateSecureGoogleGmail(firebaseUser);
   if (!secureCheck.isValid) {
@@ -185,6 +200,19 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
         };
       }
 
+      if (student.status !== 'approved') {
+        return {
+          success: false,
+          role: 'unauthorized',
+          email: normalizedEmail,
+          name: student.fullName || name || normalizedEmail.split('@')[0],
+          picture,
+          student,
+          message: 'ההרשמה עדיין אינה מאושרת. יש לפנות להנהלת האולפנה.',
+          error: 'STUDENT_NOT_APPROVED',
+        };
+      }
+
       return {
         success: true,
         role: 'student',
@@ -206,6 +234,22 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
     };
   } catch (err: any) {
     console.warn('[Auth] Firebase direct auth resolution failed, falling back to backend:', err);
+    try {
+      const fallback = await verifyBackendToken(await firebaseUser.getIdToken());
+      return {
+        success: fallback.success,
+        role: fallback.role,
+        email: fallback.email,
+        name: fallback.name,
+        picture: fallback.picture,
+        student: fallback.student,
+        manager: fallback.manager,
+        message: fallback.message,
+        error: fallback.error,
+      };
+    } catch (fallbackError) {
+      console.error('[Auth] Backend identity fallback failed:', fallbackError);
+    }
     return {
       success: false,
       role: 'unauthorized',
@@ -213,7 +257,7 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
       name,
       picture,
       message: 'אימות המשתמש מול Firebase נכשל. מנסה גיבוי מאובטח...',
-      error: err?.message || 'DIRECT_AUTH_FAILED',
+      error: 'DIRECT_AUTH_FAILED',
     };
   }
 }
@@ -252,5 +296,5 @@ export async function verifyBackendToken(idToken: string): Promise<{
  * Listen to auth state changes
  */
 export function subscribeToAuth(callback: (user: FirebaseUser | null) => void) {
-  return onAuthStateChanged(auth, callback);
+  return onIdTokenChanged(auth, callback);
 }

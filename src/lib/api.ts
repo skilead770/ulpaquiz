@@ -2,6 +2,7 @@ import {
   collection,
   getDocs,
   getDoc,
+  onSnapshot,
   query,
   where,
   doc,
@@ -140,7 +141,9 @@ export async function fetchStudents(): Promise<Student[]> {
   }
 
   try {
-    const res = await fetch(API_BASE_URL + '/api/students');
+    const res = await fetch(API_BASE_URL + '/api/students', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       const students = await parseJsonResponse(res) as Student[];
       return students.filter((student) => !student.managerParticipation);
@@ -611,6 +614,53 @@ export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Prom
   return normalized;
 }
 
+export async function getDailyQuizDedicationApi(): Promise<string> {
+  const dedicationSnap = await getDoc(doc(db, 'settings', 'dailyQuizDedication'));
+  if (!dedicationSnap.exists()) return '';
+
+  const name = dedicationSnap.data().name;
+  if (typeof name !== 'string') {
+    throw new Error('הגדרת הקדשת החידון אינה תקינה');
+  }
+  return name.trim();
+}
+
+export function subscribeToDailyQuizDedication(
+  onChange: (name: string) => void,
+  onError: (error: Error) => void
+): () => void {
+  return onSnapshot(
+    doc(db, 'settings', 'dailyQuizDedication'),
+    (dedicationSnap) => {
+      if (!dedicationSnap.exists()) {
+        onChange('');
+        return;
+      }
+
+      const name = dedicationSnap.data().name;
+      if (typeof name !== 'string') {
+        onError(new Error('הגדרת הקדשת החידון אינה תקינה'));
+        return;
+      }
+      onChange(name.trim());
+    },
+    onError
+  );
+}
+
+export async function saveDailyQuizDedicationApi(name: string): Promise<string> {
+  const normalizedName = name.trim();
+  if (normalizedName.length > 120) {
+    throw new Error('שם ההקדשה יכול להכיל עד 120 תווים');
+  }
+
+  await setDoc(doc(db, 'settings', 'dailyQuizDedication'), {
+    name: normalizedName,
+    updatedAt: new Date().toISOString(),
+  });
+  return normalizedName;
+}
+
 export async function fetchPrizesApi(): Promise<{
   reports: PrizeReportItem[];
   milestones: PrizeMilestone[];
@@ -1066,121 +1116,6 @@ export async function checkStudentStatusApi(email: string): Promise<{
   };
 }
 
-export async function loginByEmailApi(
-  email: string
-): Promise<{
-  success: boolean;
-  student?: Student;
-  isManager?: boolean;
-  role?: string;
-  message?: string;
-  manager?: Manager;
-}> {
-  const cleanEmail = email.trim().toLowerCase();
-
-  try {
-    const managerQ = query(collection(db, 'managers'), where('email', '==', cleanEmail));
-    const managerSnap = await getDocs(managerQ);
-    if (!managerSnap.empty) {
-      const manager = managerSnap.docs[0].data() as Manager;
-      return {
-        success: true,
-        isManager: true,
-        role: 'admin',
-        manager,
-        message: 'שלום מנהל המערכת!',
-      };
-    }
-  } catch (e) {
-    console.info('[Firestore] Direct manager login check failed, falling back to API:', e);
-  }
-
-  try {
-    const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
-    const studentSnap = await getDocs(studentQ);
-    if (!studentSnap.empty) {
-      const student = studentSnap.docs[0].data() as Student;
-      if (student.status === 'pending') {
-        throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
-      }
-      if (student.status === 'rejected') {
-        throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
-      }
-      return { success: true, student };
-    }
-
-    const usernameQ = query(collection(db, 'students'), where('username', '==', cleanEmail.split('@')[0]));
-    const usernameSnap = await getDocs(usernameQ);
-    if (!usernameSnap.empty) {
-      const student = usernameSnap.docs[0].data() as Student;
-      if (student.status === 'pending') {
-        throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
-      }
-      if (student.status === 'rejected') {
-        throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
-      }
-      return { success: true, student };
-    }
-  } catch (e: any) {
-    if (e.message && (e.message.includes('לא נמצאה תלמידה') || e.message.includes('ממתינה לאישור') || e.message.includes('נדחתה'))) {
-      throw e;
-    }
-    console.info('[Firestore] Direct student login check failed, falling back to API:', e);
-  }
-
-  try {
-    const res = await fetch('/api/auth/login-by-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    } else {
-      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה בהתחברות' }));
-      throw new Error(err.error || 'שגיאה בהתחברות');
-    }
-  } catch (e: any) {
-    if (e.message && (e.message.includes('לא נמצאה תלמידה') || e.message.includes('ממתינה לאישור') || e.message.includes('נדחתה'))) {
-      throw e;
-    }
-    console.info('[API] Falling back to seeded Firestore for loginByEmailApi');
-  }
-
-  if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
-    return {
-      success: true,
-      isManager: true,
-      role: 'admin',
-      manager: INITIAL_MANAGERS[0],
-      message: 'שלום מנהל המערכת!',
-    };
-  }
-
-  const existingStudents = await getOrSeedFirestoreStudents();
-  const cleanUsername = cleanEmail.split('@')[0];
-
-  const student = existingStudents.find((s) => {
-    const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-    const sUser = s.username ? s.username.trim().toLowerCase() : '';
-    return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
-  });
-
-  if (!student) {
-    throw new Error('לא נמצאה תלמידה רשומה עם כתובת Gmail זו. נא להירשם תחילה.');
-  }
-
-  if (student.status === 'pending') {
-    throw new Error('בקשת ההרשמה שלך התקבלה בהצלחה, אך היא עדיין ממתינה לאישור מנהל האולפנה. לא ניתן להיכנס למערכת עד לקבלת אישור.');
-  }
-
-  if (student.status === 'rejected') {
-    throw new Error('בקשת ההרשמה שלך נדחתה. נא לפנות להנהלת האולפנה לבירור.');
-  }
-
-  return { success: true, student };
-}
-
 export async function registerStudentApi(studentData: {
   fullName: string;
   email?: string;
@@ -1214,7 +1149,7 @@ export async function registerStudentApi(studentData: {
           success: true,
           status: 'approved',
           autoApproved: true,
-          message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+          message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
           student: existing,
         };
       }
@@ -1223,7 +1158,7 @@ export async function registerStudentApi(studentData: {
           success: true,
           status: 'pending',
           autoApproved: false,
-          message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+          message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
           student: existing,
         };
       }
@@ -1280,7 +1215,7 @@ export async function registerStudentApi(studentData: {
       success: true,
       status: 'pending',
       autoApproved: false,
-      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
+      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
       student: newStudent,
     };
   } catch (firestoreErr: any) {
@@ -1319,7 +1254,7 @@ export async function registerStudentApi(studentData: {
         success: true,
         status: 'approved',
         autoApproved: true,
-        message: 'שלום שוב! התחברת בהצלחה עם כתובת ה-Gmail שלך.',
+        message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
         student: existing,
       };
     }
@@ -1328,7 +1263,7 @@ export async function registerStudentApi(studentData: {
         success: true,
         status: 'pending',
         autoApproved: false,
-        message: 'ההרשמה שלך כבר נקלטה במערכת ונמצאת בהמתנה לאישור מנהל האולפנה. תוכלי להתחבר מיד לאחר האישור.',
+        message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
         student: existing,
       };
     }
@@ -1378,7 +1313,7 @@ export async function registerStudentApi(studentData: {
     success: true,
     status: 'pending',
     autoApproved: false,
-    message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר אישור המנהל, תוכלי להיכנס ישירות עם כתובת ה-Gmail שלך.',
+    message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
     student: newStudent,
   };
 }

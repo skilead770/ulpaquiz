@@ -26,6 +26,7 @@ interface NavbarProps {
   onChangeTab: (tab: 'study' | 'leaderboard' | 'register' | 'admin') => void;
   onResetDemo: () => void;
   onLogout?: () => void;
+  dailyDedication: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,6 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onResetDemo,
   onLogout,
   onSelectUser,
+  dailyDedication,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -61,6 +63,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="mx-auto max-w-7xl px-3 py-2.5 text-center">
                 <p className="font-black text-[11px] sm:text-sm md:text-base text-white tracking-wide leading-relaxed">
                   הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי"ד
+                </p>
+              </div>
+            </div>
+          )}
+          {dailyDedication && (
+            <div className="w-full bg-gradient-to-r from-indigo-800 via-violet-700 to-indigo-800 border-b border-indigo-950/20 shadow-sm">
+              <div className="mx-auto max-w-7xl px-3 py-2 text-center">
+                <p className="font-bold text-[11px] sm:text-sm text-violet-100 leading-relaxed">
+                  חידון היום מוקדש לעילוי נשמת {dailyDedication}
                 </p>
               </div>
             </div>
