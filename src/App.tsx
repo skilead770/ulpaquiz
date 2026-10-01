@@ -31,6 +31,7 @@ export default function App() {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [prizeReports, setPrizeReports] = useState<PrizeReportItem[]>([]);
   const [dailyQuizDedication, setDailyQuizDedication] = useState('');
+  const [studentsLoadError, setStudentsLoadError] = useState<string | null>(null);
 
   const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -53,23 +54,34 @@ export default function App() {
   ), []);
 
   const loadData = async () => {
-    try {
-      const [sData, hData, lData, pData] = await Promise.all([
+    const results = await Promise.allSettled([
         fetchStudents(),
         fetchHalachot(),
         fetchLeaderboardApi(selectedDate),
         fetchPrizesApi(),
-      ]);
+    ]);
 
-      setStudents(sData);
-      setHalachot(hData);
-      setLeaderboardData(lData);
-      setPrizeReports(Array.isArray(pData?.reports) ? pData.reports : []);
-    } catch (e) {
-      console.error('Error loading data', e);
-    } finally {
-      setIsLoading(false);
+    const [studentsResult, halachotResult, leaderboardResult, prizesResult] = results;
+    if (studentsResult.status === 'fulfilled') {
+      setStudents(studentsResult.value);
+      setStudentsLoadError(null);
+    } else {
+      console.error('[Data] Could not load students:', studentsResult.reason);
+      setStudentsLoadError(
+        studentsResult.reason instanceof Error
+          ? studentsResult.reason.message
+          : 'לא ניתן לטעון את רשימת התלמידות'
+      );
     }
+    if (halachotResult.status === 'fulfilled') setHalachot(halachotResult.value);
+    else console.error('[Data] Could not load halachot:', halachotResult.reason);
+    if (leaderboardResult.status === 'fulfilled') setLeaderboardData(leaderboardResult.value);
+    else console.error('[Data] Could not load the leaderboard:', leaderboardResult.reason);
+    if (prizesResult.status === 'fulfilled') {
+      setPrizeReports(Array.isArray(prizesResult.value?.reports) ? prizesResult.value.reports : []);
+    }
+    else console.error('[Data] Could not load prize reports:', prizesResult.reason);
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -303,6 +315,7 @@ export default function App() {
             students={students}
             halachot={halachot}
             prizeReports={prizeReports}
+            studentsLoadError={studentsLoadError}
             onRefreshData={loadData}
             onManagerQuiz={handleManagerQuiz}
             onDailyDedicationChange={setDailyQuizDedication}

@@ -1,15 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Data model: students/{id} contains private identity, status, and quiz data;
+    // publicStudents/{id} contains only approved leaderboard fields; managers/{id}
+    // contains verified manager identity; settings/{id}, halachot/{id}, and
+    // invitations/{id} are shared application configuration/content.
+    // Private student and manager records are limited to managers and the
+    // matching verified account. Public leaderboard records omit account
+    // identifiers and answers, and are matched to their private record on write.
     
-    // Helper function to check if the user is a verified manager.
+    // Manager document IDs are normalized from lowercase email addresses.
+    // Also accept the legacy super_admin document when its stored email matches.
     function isAdmin() {
-      let managerPath = /databases/$(database)/documents/managers/$(request.auth.token.email.replace("[^a-zA-Z0-9_]", "_"));
       return request.auth != null &&
         request.auth.token.email is string &&
         request.auth.token.email_verified == true &&
-        exists(managerPath) &&
-        get(managerPath).data.email == request.auth.token.email;
+        (
+          (
+            exists(/databases/$(database)/documents/managers/$(request.auth.token.email.lower().replace("[^a-zA-Z0-9_]", "_"))) &&
+            get(/databases/$(database)/documents/managers/$(request.auth.token.email.lower().replace("[^a-zA-Z0-9_]", "_"))).data.email is string &&
+            get(/databases/$(database)/documents/managers/$(request.auth.token.email.lower().replace("[^a-zA-Z0-9_]", "_"))).data.email.lower() == request.auth.token.email.lower()
+          ) ||
+          (
+            exists(/databases/$(database)/documents/managers/super_admin) &&
+            get(/databases/$(database)/documents/managers/super_admin).data.email is string &&
+            get(/databases/$(database)/documents/managers/super_admin).data.email.lower() == request.auth.token.email.lower()
+          )
+        );
     }
     
     // Student ownership is based on the verified Firebase Auth email, not a client-supplied ID.
@@ -22,6 +39,48 @@ service cloud.firestore {
         request.auth.token.email.lower() == resource.data.email.lower() &&
         studentId == resource.data.id &&
         resource.data.status == 'approved';
+    }
+
+    function isStudentRecordOwner() {
+      return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        resource.data.email is string &&
+        request.auth.token.email == resource.data.email;
+    }
+
+    function hasMatchingPublicSummary(studentId) {
+      let privatePath = /databases/$(database)/documents/students/$(studentId);
+      let student = getAfter(privatePath).data;
+      return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        existsAfter(privatePath) &&
+        student.status == 'approved' &&
+        (!('managerParticipation' in student) || student.managerParticipation != true) &&
+        studentId == student.id &&
+        request.auth.token.email == student.email &&
+        request.resource.data.id == student.id &&
+        request.resource.data.fullName == student.fullName &&
+        request.resource.data.className == student.className &&
+        request.resource.data.grade == student.grade &&
+        request.resource.data.points == student.points &&
+        request.resource.data.completedDates == student.completedDates;
+    }
+
+    function isValidPublicStudentSummary(data) {
+      return data.keys().hasAll([
+          'id', 'fullName', 'className', 'grade', 'points', 'completedDates'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'fullName', 'className', 'grade', 'points', 'completedDates'
+        ]) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 150 &&
+        data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 120 &&
+        data.className is string && data.className.size() > 0 && data.className.size() <= 40 &&
+        data.grade in ['ט', 'י', 'יא', 'יב'] &&
+        data.points is int && data.points >= 0 && data.points <= 1000000 &&
+        data.completedDates is list && data.completedDates.size() <= 400;
     }
 
     function isValidStudentDocument(data) {
@@ -54,6 +113,7 @@ service cloud.firestore {
       return isValidStudentDocument(data) &&
         data.keys().hasAll(['email', 'status']) &&
         data.email is string && data.email.matches("^[A-Za-z0-9._%+-]+@gmail\\.com$") &&
+        data.id == ("s-reg-" + data.email.lower().replace("[^a-zA-Z0-9_]", "_")) &&
         data.status == 'pending' &&
         data.points == 0 &&
         data.completedDates.size() == 0 &&
@@ -169,6 +229,15 @@ service cloud.firestore {
         request.resource.data.submissions.size() <= resource.data.submissions.size();
     }
 
+    function isAdminApproval(studentId) {
+      let affectedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.id == studentId &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'approved' &&
+        affectedKeys.hasOnly(['status']) &&
+        affectedKeys.hasAll(['status']);
+    }
+
     // 1. Halachot & Quizzes: Publicly readable for students, Admin-only write
     match /halachot/{halachaId} {
       allow read: if true;
@@ -183,7 +252,12 @@ service cloud.firestore {
     
     // 3. Managers: Admin-only read/write
     match /managers/{managerId} {
-      allow read: if request.auth != null; // Students might need to see names
+      allow read: if isAdmin() ||
+        (request.auth != null &&
+          request.auth.token.email_verified == true &&
+          request.auth.token.email is string &&
+          resource.data.email is string &&
+          request.auth.token.email == resource.data.email);
       allow write: if isAdmin();
     }
     
@@ -195,9 +269,7 @@ service cloud.firestore {
     
     // 5. Students: 
     match /students/{studentId} {
-      // Allow read for leaderboard and student lookups
-      // Note: Leaderboard items should ideally be in a separate public collection.
-      allow read: if true; 
+      allow read: if isAdmin() || isStudentRecordOwner();
       
       // Keep pending registration public, but reject extra fields or privilege data.
       allow create: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
@@ -205,11 +277,21 @@ service cloud.firestore {
       
       // Allow updates for quiz submissions and admin reset actions.
       // Restricted to owners OR admins, with explicit handling for legitimate reset flows.
-      allow update: if (isAdmin() && isValidStudentDocument(request.resource.data)) ||
+      allow update: if (isAdmin() &&
+          (isValidStudentDocument(request.resource.data) || isAdminApproval(studentId))) ||
         isValidQuizProgressUpdate(studentId) ||
         isValidAdminResetScore(studentId);
       
       // Prevent public deletion
+      allow delete: if isAdmin();
+    }
+
+    // Public leaderboard profile contains no email, username, or quiz answers.
+    match /publicStudents/{studentId} {
+      allow read: if true;
+      allow create, update: if isValidPublicStudentSummary(request.resource.data) &&
+        request.resource.data.id == studentId &&
+        (isAdmin() || hasMatchingPublicSummary(studentId));
       allow delete: if isAdmin();
     }
 

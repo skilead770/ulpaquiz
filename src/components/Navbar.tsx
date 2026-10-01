@@ -71,7 +71,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-full bg-gradient-to-r from-indigo-800 via-violet-700 to-indigo-800 border-b border-indigo-950/20 shadow-sm">
               <div className="mx-auto max-w-7xl px-3 py-2 text-center">
                 <p className="font-bold text-[11px] sm:text-sm text-violet-100 leading-relaxed">
-                  חידון היום מוקדש לעילוי נשמת {dailyDedication}
+                  חידון היום מוקדש: {dailyDedication}
                 </p>
               </div>
             </div>

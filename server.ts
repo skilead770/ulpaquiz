@@ -19,6 +19,7 @@ import {
   GradeType,
   Invitation,
   Manager,
+  PublicStudentSummary,
   inferGradeFromClass,
 } from './src/types';
 import {
@@ -175,6 +176,7 @@ async function initFirestore() {
       managersSnap.forEach((doc) => loadedManagers.push(doc.data() as Manager));
 
       db.students = loadedStudents;
+      await syncPublicStudentSummaries(loadedStudents);
       // Ensure skivthashem@gmail.com is in db.students and always marked approved
       const existingSkivInLoaded = db.students.find((s) => s.email && s.email.toLowerCase() === 'skivthashem@gmail.com');
       if (!existingSkivInLoaded) {
@@ -245,6 +247,7 @@ async function seedFirestore() {
       batch.set(ref, mgr);
     });
     await batch.commit();
+    await syncPublicStudentSummaries(db.students);
     console.log('[Firestore] Successfully seeded Firestore with initial data!');
   } catch (err) {
     console.error('[Firestore] Error seeding Firestore:', err);
@@ -285,16 +288,66 @@ async function deleteManagerFromFirestore(email: string) {
 async function saveStudentToFirestore(student: Student) {
   if (!firestoreDb) return;
   try {
-    await firestoreDb.collection('students').doc(student.id).set(student);
+    const batch = firestoreDb.batch();
+    batch.set(firestoreDb.collection('students').doc(student.id), student);
+    const publicRef = firestoreDb.collection('publicStudents').doc(student.id);
+    const publicSummary = toPublicStudentSummary(student);
+    if (publicSummary) {
+      batch.set(publicRef, publicSummary);
+    } else {
+      batch.delete(publicRef);
+    }
+    await batch.commit();
   } catch (err) {
     console.error(`[Firestore] Error saving student ${student.id}:`, err);
+  }
+}
+
+function toPublicStudentSummary(student: Student): PublicStudentSummary | null {
+  if (student.status !== 'approved' || student.managerParticipation) return null;
+  return {
+    id: student.id,
+    fullName: student.fullName,
+    className: student.className,
+    grade: student.grade,
+    points: student.points,
+    completedDates: student.completedDates,
+  };
+}
+
+async function syncPublicStudentSummaries(students: Student[]) {
+  if (!firestoreDb) return;
+  const publicCollection = firestoreDb.collection('publicStudents');
+  const current = await publicCollection.get();
+  const summaries = students
+    .map(toPublicStudentSummary)
+    .filter((summary): summary is PublicStudentSummary => summary !== null);
+  const activeIds = new Set(summaries.map((summary) => summary.id));
+  const writes: Array<{ id: string; summary?: PublicStudentSummary }> = [
+    ...summaries.map((summary) => ({ id: summary.id, summary })),
+    ...current.docs
+      .filter((document) => !activeIds.has(document.id))
+      .map((document) => ({ id: document.id })),
+  ];
+
+  for (let offset = 0; offset < writes.length; offset += 450) {
+    const batch = firestoreDb.batch();
+    writes.slice(offset, offset + 450).forEach(({ id, summary }) => {
+      const reference = publicCollection.doc(id);
+      if (summary) batch.set(reference, summary);
+      else batch.delete(reference);
+    });
+    await batch.commit();
   }
 }
 
 async function deleteStudentFromFirestore(id: string) {
   if (!firestoreDb) return;
   try {
-    await firestoreDb.collection('students').doc(id).delete();
+    const batch = firestoreDb.batch();
+    batch.delete(firestoreDb.collection('students').doc(id));
+    batch.delete(firestoreDb.collection('publicStudents').doc(id));
+    await batch.commit();
   } catch (err) {
     console.error(`[Firestore] Error deleting student ${id}:`, err);
   }
@@ -713,42 +766,38 @@ async function startServer() {
   }
 
   // Check registration status by Gmail
-  app.post('/api/auth/check-status', (req, res) => {
+  app.post('/api/auth/check-status', async (req, res) => {
     const { email } = req.body;
     const gCheck = validateGmail(email || '');
     if (!gCheck.valid || !gCheck.email) {
       return res.status(400).json({ error: gCheck.error });
     }
     const cleanEmail = gCheck.email;
-    const cleanUsername = cleanEmail.split('@')[0];
-
-    // Check if manager
-    const manager = (db.managers || INITIAL_MANAGERS).find(
-      (m) => m.email.toLowerCase() === cleanEmail
-    );
-    if (manager) {
-      return res.json({
-        registered: true,
-        isManager: true,
-        status: 'approved',
-        manager,
-      });
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const verified = await verifyGoogleToken(token);
+    if (!verified?.emailVerified || verified.email !== cleanEmail) {
+      return res.status(401).json({ error: 'נדרשת התחברות לחשבון Google המתאים כדי לבדוק את הסטטוס.' });
     }
 
-    const student = db.students.find((s) => {
-      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-      const sUser = s.username ? s.username.trim().toLowerCase() : '';
-      return sEmail === cleanEmail || sUser === cleanEmail || sUser === cleanUsername;
-    });
+    const manager = (db.managers || INITIAL_MANAGERS).some(
+      (item) => item.email.toLowerCase() === cleanEmail
+    );
+    if (manager) {
+      return res.json({ registered: true, status: 'approved' });
+    }
+
+    const student = db.students.find(
+      (item) => item.email?.trim().toLowerCase() === cleanEmail
+    );
 
     if (!student) {
       return res.json({ registered: false });
     }
 
-    res.json({
+    return res.json({
       registered: true,
       status: student.status || 'approved',
-      student: student.status === 'approved' ? student : { id: student.id, fullName: student.fullName, status: student.status, email: student.email },
     });
   });
 
@@ -1361,7 +1410,9 @@ async function startServer() {
     const today = (req.query.date as string) || '2026-07-31';
 
     // 1. Student Leaderboard
-    const leaderboardStudents = db.students.filter((student) => !student.managerParticipation);
+    const leaderboardStudents = db.students
+      .map(toPublicStudentSummary)
+      .filter((student): student is PublicStudentSummary => student !== null);
     const studentItems: StudentLeaderboardItem[] = leaderboardStudents.map((s) => ({
       id: s.id,
       fullName: s.fullName,
@@ -1455,18 +1506,27 @@ async function startServer() {
 
   // Prize Report API
   app.get('/api/prizes', (req, res) => {
-    const reports: PrizeReportItem[] = db.students.filter((student) => !student.managerParticipation).map((student) => {
+    const reports: PrizeReportItem[] = db.students
+      .map(toPublicStudentSummary)
+      .filter((student): student is PublicStudentSummary => student !== null)
+      .map((student) => {
       const qualifyingMilestones = DEFAULT_PRIZE_MILESTONES.filter((m) => student.points >= m.points);
       const nextMilestone = DEFAULT_PRIZE_MILESTONES.find((m) => student.points < m.points) || null;
       const pointsNeeded = nextMilestone ? nextMilestone.points - student.points : 0;
 
       return {
-        student,
+        student: {
+          id: student.id,
+          fullName: student.fullName,
+          className: student.className,
+          grade: student.grade,
+          points: student.points,
+        },
         qualifyingMilestones,
         nextMilestone,
         pointsNeeded,
       };
-    });
+      });
 
     // Sort by points descending
     reports.sort((a, b) => b.student.points - a.student.points);

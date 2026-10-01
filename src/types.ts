@@ -65,6 +65,15 @@ export interface Student {
   managerParticipation?: boolean;
 }
 
+export interface PublicStudentSummary {
+  id: string;
+  fullName: string;
+  className: string;
+  grade: GradeType;
+  points: number;
+  completedDates: string[];
+}
+
 export interface Invitation {
   id: string;
   code: string;
@@ -120,7 +129,7 @@ export interface PrizeMilestone {
 }
 
 export interface PrizeReportItem {
-  student: Student;
+  student: Pick<PublicStudentSummary, 'id' | 'fullName' | 'className' | 'grade' | 'points'>;
   qualifyingMilestones: PrizeMilestone[];
   nextMilestone: PrizeMilestone | null;
   pointsNeeded: number;

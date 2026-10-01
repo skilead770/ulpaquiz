@@ -72,6 +72,7 @@ import { getTodayInJerusalem } from '../lib/quizSchedule';
 
 interface AdminPanelProps {
   students: Student[];
+  studentsLoadError: string | null;
   halachot: DailyHalacha[];
   prizeReports: PrizeReportItem[];
   onRefreshData: () => void;
@@ -184,6 +185,7 @@ function parseDocumentHebrewHeading(line: string) {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   students,
+  studentsLoadError,
   halachot,
   prizeReports,
   onRefreshData,
@@ -523,6 +525,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Student Search / Filter State
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [studentFilterClass, setStudentFilterClass] = useState<string>('ALL');
+  const [studentSortOrder, setStudentSortOrder] = useState<'class' | 'name' | 'points'>('class');
 
   // Manual Add Student State
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
@@ -593,7 +596,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onRefreshData();
     } catch (err) {
       console.error(err);
-      alert('נכשל אישור התלמידה');
+      const message = err instanceof Error ? err.message : 'שגיאה לא ידועה';
+      alert(`נכשל אישור התלמידה: ${message}`);
     }
   };
 
@@ -1133,12 +1137,24 @@ ${targetHalacha.content}
   };
 
   // Filtered Students
-  const filteredStudents = students.filter((s) => {
-    const matchesSearch =
-      s.fullName.includes(studentSearchTerm) || s.username.includes(studentSearchTerm);
+  const filteredStudents = students
+    .filter((s) => {
+    const searchTerm = studentSearchTerm.trim().toLocaleLowerCase('he');
+    const matchesSearch = !searchTerm || [s.fullName, s.username, s.email || '']
+      .some((value) => value.toLocaleLowerCase('he').includes(searchTerm));
     const matchesClass = studentFilterClass === 'ALL' || s.className === studentFilterClass;
     return matchesSearch && matchesClass;
-  });
+    })
+    .sort((a, b) => {
+      if (studentSortOrder === 'name') {
+        return a.fullName.localeCompare(b.fullName, 'he');
+      }
+      if (studentSortOrder === 'points') {
+        return b.points - a.points || a.fullName.localeCompare(b.fullName, 'he');
+      }
+      return a.className.localeCompare(b.className, 'he', { numeric: true })
+        || a.fullName.localeCompare(b.fullName, 'he');
+    });
 
   const uniqueClasses = Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean).sort();
 
@@ -2147,6 +2163,21 @@ ${targetHalacha.content}
       ==================================================== */}
       {activeAdminTab === 'students' && (
         <div className="space-y-6">
+          {studentsLoadError && (
+            <div role="alert" className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-bold text-rose-800">
+              <p>לא ניתן לטעון את רשימת התלמידות או בקשות ההרשמה.</p>
+              <p className="mt-1 text-xs font-medium">{studentsLoadError}</p>
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="mt-3 rounded-xl border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-800 disabled:opacity-50"
+              >
+                {isRefreshing ? 'מרענן...' : 'נסי לרענן'}
+              </button>
+            </div>
+          )}
+
           {/* Pending Registrations Card */}
           {pendingStudents.length > 0 ? (
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-3xl p-6 border-2 border-amber-400 shadow-md space-y-4">
@@ -2259,10 +2290,10 @@ ${targetHalacha.content}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
               <div>
                 <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo']">
-                  רשימת התלמידות הרשומות ({students.length})
+                  רשימת התלמידות הרשומות ({filteredStudents.length} מתוך {students.length})
                 </h3>
                 <p className="text-xs text-amber-800">
-                  סינון, חיפוש, הוספת תלמידות בודדות ובדק ניקוד.
+                  חיפוש תלמידה, סינון לפי כיתה ומיון הרשימה.
                 </p>
               </div>
 
@@ -2280,7 +2311,8 @@ ${targetHalacha.content}
                   <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder="חיפוש לפי שם..."
+                    aria-label="חיפוש תלמידה לפי שם, Gmail או שם משתמש"
+                    placeholder="חיפוש לפי שם או Gmail..."
                     value={studentSearchTerm}
                     onChange={(e) => setStudentSearchTerm(e.target.value)}
                     className="pr-9 pl-3 py-1.5 rounded-xl border border-amber-300 text-xs bg-amber-50/40"
@@ -2288,6 +2320,7 @@ ${targetHalacha.content}
                 </div>
 
                 <select
+                  aria-label="סינון לפי כיתה"
                   value={studentFilterClass}
                   onChange={(e) => setStudentFilterClass(e.target.value)}
                   className="px-3 py-1.5 rounded-xl border border-amber-300 text-xs bg-amber-50/40 font-bold text-amber-950"
@@ -2298,6 +2331,17 @@ ${targetHalacha.content}
                       כיתה {cls}
                     </option>
                   ))}
+                </select>
+
+                <select
+                  aria-label="מיון רשימת התלמידות"
+                  value={studentSortOrder}
+                  onChange={(e) => setStudentSortOrder(e.target.value as typeof studentSortOrder)}
+                  className="px-3 py-1.5 rounded-xl border border-amber-300 text-xs bg-amber-50/40 font-bold text-amber-950"
+                >
+                  <option value="class">מיון לפי כיתה</option>
+                  <option value="name">מיון לפי שם</option>
+                  <option value="points">מיון לפי ניקוד</option>
                 </select>
               </div>
             </div>
@@ -2318,7 +2362,13 @@ ${targetHalacha.content}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-amber-100">
-                  {filteredStudents.map((s) => (
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-sm font-semibold text-slate-500">
+                        לא נמצאו תלמידות לפי החיפוש והסינון שנבחרו.
+                      </td>
+                    </tr>
+                  ) : filteredStudents.map((s) => (
                     <tr key={s.id} className="hover:bg-amber-50/50">
                       <td className="p-3 font-bold text-slate-900">{s.fullName}</td>
                       <td className="p-3 text-slate-600 font-mono text-[11px]" dir="ltr">
@@ -3255,7 +3305,7 @@ ${targetHalacha.content}
                 הקדשת החידון היומי
               </h3>
               <p className="mt-1 text-xs text-amber-800">
-                השם שיוזן כאן יוצג בכותרת הראשית לתלמידות. השאירי את השדה ריק כדי להסיר את ההקדשה.
+                נוסח ההקדשה שיוזן כאן יוצג בכותרת הראשית לתלמידות. השאירי את השדה ריק כדי להסיר אותה.
               </p>
             </div>
           </div>
@@ -3263,7 +3313,7 @@ ${targetHalacha.content}
           <form onSubmit={handleSaveDailyQuizDedication} className="space-y-4">
             <div>
               <label htmlFor="daily-quiz-dedication" className="block text-sm font-bold text-slate-700 mb-1.5">
-                שם האדם שלעילוי נשמתו מוקדש החידון
+                נוסח ההקדשה
               </label>
               <input
                 id="daily-quiz-dedication"
@@ -3273,11 +3323,11 @@ ${targetHalacha.content}
                 value={dailyQuizDedication}
                 onChange={(event) => setDailyQuizDedication(event.target.value)}
                 disabled={isLoadingDailyQuizDedication || isSavingDailyQuizDedication}
-                placeholder="לדוגמה: ישראלה ישראלי ע״ה"
+                placeholder="לדוגמה: לעילוי נשמת ישראלה ישראלי ע״ה, לרפואת..., לכבוד..."
                 className="w-full max-w-xl p-3 rounded-xl border border-amber-300 bg-white text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden disabled:bg-slate-100"
               />
               <p className="mt-1 text-[11px] text-slate-500">
-                עד 120 תווים. ההודעה תופיע כך: "חידון היום מוקדש לעילוי נשמת {dailyQuizDedication.trim() || '...'}".
+                עד 120 תווים. ההודעה תופיע כך: "חידון היום מוקדש: {dailyQuizDedication.trim() || '...'}".
               </p>
             </div>
 
