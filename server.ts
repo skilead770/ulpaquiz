@@ -6,7 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import mammoth from 'mammoth';
 import { firestoreDb, authAdmin } from './src/lib/firebaseAdmin';
-import { getTodayInJerusalem } from './src/lib/quizSchedule';
+import { getTodayInJerusalem, isQuizDateAvailable } from './src/lib/quizSchedule';
 import {
   Student,
   DailyHalacha,
@@ -21,6 +21,7 @@ import {
   Manager,
   PublicStudentSummary,
   inferGradeFromClass,
+  getStudentRegistrationDocumentId,
 } from './src/types';
 import {
   INITIAL_STUDENTS,
@@ -30,10 +31,15 @@ import {
   INITIAL_CLASSES,
   DEFAULT_PRIZE_MILESTONES,
 } from './src/data/seedData';
+import { validateGmailAddress } from './src/lib/gmailValidator';
 
 const PORT = 3000;
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+
+function isGmailAccount(email: string): boolean {
+  return validateGmailAddress(email).isValid;
+}
 
 // Super admin configuration from environment variables
 const SUPER_ADMIN_EMAIL = process.env.VITE_SUPER_ADMIN_EMAIL || 'skilead770@gmail.com';
@@ -457,9 +463,13 @@ async function startServer() {
     }
 
     const verified = await verifyGoogleToken(token);
-    if (!verified || !verified.email || !verified.emailVerified) {
+    if (
+      !verified?.email ||
+      !verified.emailVerified ||
+      !isGmailAccount(verified.email)
+    ) {
       return res.status(401).json({
-        error: 'אימות זהות מנהל Google נכשל או שפג תוקף הטוקן. אנא התחבר מחדש.',
+        error: 'נדרשת כתובת Gmail מאומתת כדי להתחבר למערכת הניהול.',
         code: 'INVALID_TOKEN',
       });
     }
@@ -486,8 +496,8 @@ async function startServer() {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
     const verified = await verifyGoogleToken(token);
 
-    if (!verified?.email || !verified.emailVerified) {
-      return res.status(401).json({ error: 'נדרשת התחברות באמצעות חשבון Google מאומת.' });
+    if (!verified?.email || !verified.emailVerified || !isGmailAccount(verified.email)) {
+      return res.status(401).json({ error: 'נדרשת התחברות באמצעות חשבון Gmail מאומת.' });
     }
 
     const verifiedEmail = verified.email.trim().toLowerCase();
@@ -776,7 +786,12 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
     const verified = await verifyGoogleToken(token);
-    if (!verified?.emailVerified || verified.email !== cleanEmail) {
+    if (
+      !verified?.emailVerified ||
+      !verified.email ||
+      !isGmailAccount(verified.email) ||
+      verified.email !== cleanEmail
+    ) {
       return res.status(401).json({ error: 'נדרשת התחברות לחשבון Google המתאים כדי לבדוק את הסטטוס.' });
     }
 
@@ -852,6 +867,13 @@ async function startServer() {
       }
 
       const cleanEmail = email.trim().toLowerCase();
+      if (!isGmailAccount(cleanEmail)) {
+        return res.status(403).json({
+          success: false,
+          role: 'unauthorized',
+          error: 'הכניסה למערכת זמינה רק באמצעות חשבון Gmail מאומת.',
+        });
+      }
 
       // Check if user is an approved Manager
       const manager = (db.managers || INITIAL_MANAGERS).find(
@@ -1020,7 +1042,7 @@ async function startServer() {
 
     // Explicit user requirement: Student does NOT enter immediately! Must wait for admin approval!
     const newStudent: Student = {
-      id: `s-reg-${Date.now()}`,
+      id: getStudentRegistrationDocumentId(effectiveEmail),
       fullName: fullName.trim(),
       className: chosenClass,
       grade: derivedGrade,
@@ -1305,13 +1327,27 @@ async function startServer() {
     if (!studentId || !date || !answers) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
-    if (date !== getTodayInJerusalem()) {
-      return res.status(400).json({ error: 'ניתן להיבחן רק בחידון של היום' });
+    if (!isQuizDateAvailable(getTodayInJerusalem(), date)) {
+      return res.status(400).json({ error: 'אפשר להשלים מראש רק חידונים לתאריכים שחלים בשבת או בחג' });
     }
 
-    const student = db.students.find((s) => s.id === studentId);
-    if (!student) {
+    const studentIndex = db.students.findIndex((s) => s.id === studentId);
+    if (studentIndex < 0) {
       return res.status(404).json({ error: 'Student not found' });
+    }
+    let student = db.students[studentIndex];
+    if (firestoreDb) {
+      try {
+        const studentSnapshot = await firestoreDb.collection('students').doc(studentId).get();
+        if (!studentSnapshot.exists) {
+          return res.status(404).json({ error: 'Student not found' });
+        }
+        student = studentSnapshot.data() as Student;
+        db.students[studentIndex] = student;
+      } catch (error) {
+        console.error('[Quiz] Could not refresh the student record before an advance submission:', error);
+        return res.status(503).json({ error: 'לא ניתן לטעון את פרטי התלמידה לשמירת החידון. נסי שוב.' });
+      }
     }
     if (student.status !== 'approved') {
       return res.status(403).json({ error: 'רק תלמידה שאושרה יכולה להיבחן' });
@@ -1319,7 +1355,12 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
     const verified = await verifyGoogleToken(token);
-    if (!verified || !verified.emailVerified || verified.email !== student.email?.trim().toLowerCase()) {
+    if (
+      !verified ||
+      !verified.emailVerified ||
+      !isGmailAccount(verified.email) ||
+      verified.email !== student.email?.trim().toLowerCase()
+    ) {
       return res.status(403).json({ error: 'נדרשת התחברות Google מאומתת לחשבון התלמידה' });
     }
 

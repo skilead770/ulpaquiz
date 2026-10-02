@@ -15,13 +15,17 @@ import {
 } from 'lucide-react';
 import { Student, DailyHalacha } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
-import { formatShortHebrewDateLabel } from '../lib/quizSchedule';
+import { formatQuizDateLabel } from '../lib/quizSchedule';
 
 interface DashboardProps {
   student: Student;
   halachot: DailyHalacha[];
+  isLoadingHalachot: boolean;
+  halachotLoadError: string | null;
+  onRetryLoad: () => void;
   selectedDate: string;
   todayDate: string;
+  availableQuizDates: string[];
   onSelectDate: (date: string) => void;
   onStartQuiz: () => void;
   onViewLeaderboards: () => void;
@@ -30,8 +34,12 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({
   student,
   halachot,
+  isLoadingHalachot,
+  halachotLoadError,
+  onRetryLoad,
   selectedDate,
   todayDate,
+  availableQuizDates,
   onSelectDate,
   onStartQuiz,
   onViewLeaderboards,
@@ -39,7 +47,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [showSubmissionDetails, setShowSubmissionDetails] = useState(false);
 
   const currentHalacha = halachot.find((h) => h.date === selectedDate);
-  const canTakeQuiz = selectedDate === todayDate && currentHalacha?.quizEnabled !== false;
+  const canTakeQuiz = availableQuizDates.includes(selectedDate) && currentHalacha?.quizEnabled !== false;
+  const advanceQuizDates = availableQuizDates.slice(1);
 
   const isCompletedToday = student.completedDates.includes(selectedDate);
   const submission = student.submissions[selectedDate];
@@ -165,7 +174,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
                 }`}
               >
-                <span>{formatShortHebrewDateLabel(h.hebrewDate) || h.date}</span>
+                <span>{formatQuizDateLabel(h.hebrewDate, h.date)}</span>
+                {advanceQuizDates.includes(h.date) && (
+                  <span className={`text-[9px] font-extrabold ${isSelected ? 'text-amber-100' : 'text-amber-700'}`}>
+                    מראש
+                  </span>
+                )}
                 {isDone && (
                   <CheckCircle2
                     className={`w-3.5 h-3.5 shrink-0 ${
@@ -177,6 +191,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
             );
           })}
         </div>
+        {advanceQuizDates.length > 0 && (
+          <p className="w-full text-[11px] leading-relaxed text-amber-800">
+            לקראת שבת או חג, אפשר להשלים מראש את החידונים לתאריכים המסומנים מראש.
+          </p>
+        )}
       </div>
 
       {/* Main Halacha Content Card */}
@@ -219,7 +238,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               ) : (
                 <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-2xl text-xs font-bold border border-slate-200 shrink-0 self-start sm:self-auto">
-                  {selectedDate !== todayDate ? 'אפשר להיבחן רק על החידון של היום' : 'לא נקבע חידון לתאריך זה'}
+                  {selectedDate !== todayDate ? 'החידון לתאריך זה אינו פתוח כעת' : 'לא נקבע חידון לתאריך זה'}
                 </div>
             )}
           </div>
@@ -321,8 +340,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       ) : (
-        <div className="bg-white p-6 sm:p-8 rounded-2xl text-center text-slate-500 border border-amber-200 text-sm">
-          לא נמצאה הלכה יומית ליום זה.
+        <div className="bg-white p-6 sm:p-8 rounded-2xl text-center text-slate-600 border border-amber-200 text-sm space-y-3">
+          {isLoadingHalachot ? (
+            <p role="status">טוענת את ההלכה והחידון היומי...</p>
+          ) : halachotLoadError ? (
+            <>
+              <p role="alert">לא ניתן לטעון את ההלכה והחידון היומי.</p>
+              <p className="text-xs text-slate-500">{halachotLoadError}</p>
+              <button
+                type="button"
+                onClick={onRetryLoad}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700"
+              >
+                נסי לטעון שוב
+              </button>
+            </>
+          ) : (
+            <>
+              <p>לא נמצאה הלכה יומית ליום זה.</p>
+              <button
+                type="button"
+                onClick={onRetryLoad}
+                className="rounded-xl border border-amber-300 px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-50"
+              >
+                רענני את ההלכות
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

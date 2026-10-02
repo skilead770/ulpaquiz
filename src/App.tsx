@@ -9,6 +9,8 @@ import {
   setAuthToken,
   getOrCreateManagerParticipant,
   subscribeToDailyQuizDedication,
+  fetchAdvanceQuizDates,
+  syncAdvanceQuizAvailability,
 } from './lib/api';
 import {
   resolveFirebaseUserSession,
@@ -23,7 +25,11 @@ import { Leaderboards } from './components/Leaderboards';
 import { AdminPanel } from './components/AdminPanel';
 import { RegisterPage } from './components/RegisterPage';
 import { EntryScreen } from './components/EntryScreen';
-import { getStudentQuizDateWindow, getTodayInJerusalem, uniqueQuizzesByDate } from './lib/quizSchedule';
+import {
+  getStudentQuizDateWindow,
+  getTodayInJerusalem,
+  uniqueQuizzesByDate,
+} from './lib/quizSchedule';
 
 export default function App() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -32,12 +38,15 @@ export default function App() {
   const [prizeReports, setPrizeReports] = useState<PrizeReportItem[]>([]);
   const [dailyQuizDedication, setDailyQuizDedication] = useState('');
   const [studentsLoadError, setStudentsLoadError] = useState<string | null>(null);
+  const [isHalachotLoading, setIsHalachotLoading] = useState(false);
+  const [halachotLoadError, setHalachotLoadError] = useState<string | null>(null);
 
   const [currentStudentId, setCurrentStudentId] = useState<string | 'admin' | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const resolvedAuthUid = useRef<string | null>(null);
   const authResolutionSequence = useRef(0);
   const [todayDate, setTodayDate] = useState(() => getTodayInJerusalem());
+  const [availableQuizDates, setAvailableQuizDates] = useState<string[]>([todayDate]);
   const [selectedDate, setSelectedDate] = useState<string>(todayDate);
   const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
 
@@ -46,42 +55,85 @@ export default function App() {
   const [managerParticipant, setManagerParticipant] = useState<Student | null>(null);
   const [activeMilestoneAlert, setActiveMilestoneAlert] = useState<PrizeMilestone | null>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
-
   useEffect(() => subscribeToDailyQuizDedication(
     setDailyQuizDedication,
     (error) => console.error('[Firestore] Could not load the daily quiz dedication:', error)
   ), []);
 
-  const loadData = async () => {
-    const results = await Promise.allSettled([
-        fetchStudents(),
-        fetchHalachot(),
-        fetchLeaderboardApi(selectedDate),
-        fetchPrizesApi(),
-    ]);
+  useEffect(() => {
+    if (!isAuthReady || !currentStudentId || currentStudentId === 'admin') {
+      setAvailableQuizDates([todayDate]);
+      return;
+    }
 
-    const [studentsResult, halachotResult, leaderboardResult, prizesResult] = results;
-    if (studentsResult.status === 'fulfilled') {
-      setStudents(studentsResult.value);
-      setStudentsLoadError(null);
-    } else {
-      console.error('[Data] Could not load students:', studentsResult.reason);
-      setStudentsLoadError(
-        studentsResult.reason instanceof Error
-          ? studentsResult.reason.message
-          : 'לא ניתן לטעון את רשימת התלמידות'
-      );
-    }
-    if (halachotResult.status === 'fulfilled') setHalachot(halachotResult.value);
-    else console.error('[Data] Could not load halachot:', halachotResult.reason);
-    if (leaderboardResult.status === 'fulfilled') setLeaderboardData(leaderboardResult.value);
-    else console.error('[Data] Could not load the leaderboard:', leaderboardResult.reason);
-    if (prizesResult.status === 'fulfilled') {
-      setPrizeReports(Array.isArray(prizesResult.value?.reports) ? prizesResult.value.reports : []);
-    }
-    else console.error('[Data] Could not load prize reports:', prizesResult.reason);
-    setIsLoading(false);
+    let isMounted = true;
+    setAvailableQuizDates([todayDate]);
+    void fetchAdvanceQuizDates(todayDate)
+      .then((advanceDates) => {
+        if (isMounted) setAvailableQuizDates([todayDate, ...advanceDates]);
+      })
+      .catch((error: unknown) => {
+        console.error('[Firestore] Could not load advance quiz dates:', error);
+        if (isMounted) setAvailableQuizDates([todayDate]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentStudentId, isAuthReady, todayDate]);
+
+  useEffect(() => {
+    if (currentStudentId !== 'admin') return;
+    void syncAdvanceQuizAvailability().catch((error: unknown) => {
+      console.error('[Firestore] Could not sync advance quiz dates:', error);
+    });
+  }, [currentStudentId]);
+
+  const loadData = async () => {
+    setIsHalachotLoading(true);
+    setHalachotLoadError(null);
+    const studentsLoad = fetchStudents()
+      .then((loadedStudents) => {
+        setStudents(loadedStudents);
+        setStudentsLoadError(null);
+      })
+      .catch((error: unknown) => {
+        console.error('[Data] Could not load students:', error);
+        setStudentsLoadError(
+          error instanceof Error
+            ? error.message
+            : 'לא ניתן לטעון את רשימת התלמידות'
+        );
+      });
+    const halachotLoad = fetchHalachot()
+      .then(setHalachot)
+      .catch((error: unknown) => {
+        console.error('[Data] Could not load halachot:', error);
+        setHalachotLoadError(
+          error instanceof Error
+            ? error.message
+            : 'לא ניתן לטעון את ההלכה והחידון היומי'
+        );
+      })
+      .finally(() => setIsHalachotLoading(false));
+
+    void Promise.allSettled([
+      fetchLeaderboardApi(selectedDate),
+      fetchPrizesApi(),
+    ]).then(([leaderboardResult, prizesResult]) => {
+      if (leaderboardResult.status === 'fulfilled') {
+        setLeaderboardData(leaderboardResult.value);
+      } else {
+        console.error('[Data] Could not load the leaderboard:', leaderboardResult.reason);
+      }
+      if (prizesResult.status === 'fulfilled') {
+        setPrizeReports(Array.isArray(prizesResult.value?.reports) ? prizesResult.value.reports : []);
+      } else {
+        console.error('[Data] Could not load prize reports:', prizesResult.reason);
+      }
+    });
+
+    await Promise.allSettled([studentsLoad, halachotLoad]);
   };
 
   useEffect(() => {
@@ -123,11 +175,16 @@ export default function App() {
             session.student?.status === 'approved'
           ) {
             resolvedAuthUid.current = user.uid;
+            setStudents((currentStudents) => [
+              ...currentStudents.filter((student) => student.id !== session.student!.id),
+              session.student!,
+            ]);
             setCurrentStudentId(session.student.id);
             setActiveTab('study');
           } else {
             resolvedAuthUid.current = null;
             setCurrentStudentId(null);
+            setStudents([]);
             setAuthToken(null);
           }
           setIsAuthReady(true);
@@ -136,6 +193,7 @@ export default function App() {
           if (isMounted && resolutionId === authResolutionSequence.current) {
             resolvedAuthUid.current = null;
             setCurrentStudentId(null);
+            setStudents([]);
             setAuthToken(null);
             setIsAuthReady(true);
           }
@@ -152,7 +210,6 @@ export default function App() {
   useEffect(() => {
     if (!isAuthReady) return;
     if (!currentStudentId) {
-      setIsLoading(false);
       return;
     }
     void loadData();
@@ -183,9 +240,14 @@ export default function App() {
 
   const handleLoginSuccess = (user: Student | 'admin', token: string) => {
     const id = typeof user === 'string' ? user : user.id;
+    if (typeof user !== 'string') {
+      setStudents((currentStudents) => [
+        ...currentStudents.filter((student) => student.id !== user.id),
+        user,
+      ]);
+    }
     setCurrentStudentId(id);
     setAuthToken(token);
-    setIsLoading(true);
     setActiveTab(id === 'admin' ? 'admin' : 'study');
   };
 
@@ -230,7 +292,7 @@ export default function App() {
     setShowQuizModal(true);
   };
 
-  if (!isAuthReady || (currentStudentId !== null && isLoading)) {
+  if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-amber-50/40 flex items-center justify-center p-4">
         <div className="text-center space-y-3">
@@ -282,11 +344,19 @@ export default function App() {
           <Dashboard
             student={currentStudent}
             halachot={dashboardHalachot}
+            isLoadingHalachot={isHalachotLoading}
+            halachotLoadError={halachotLoadError}
+            onRetryLoad={loadData}
             selectedDate={selectedDate}
             todayDate={todayDate}
+            availableQuizDates={availableQuizDates}
             onSelectDate={(d) => setSelectedDate(d)}
             onStartQuiz={() => {
-              if (selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false) {
+              if (
+                availableQuizDates.includes(selectedDate) &&
+                selectedHalacha &&
+                selectedHalacha.quizEnabled !== false
+              ) {
                 setShowQuizModal(true);
               }
             }}
@@ -331,7 +401,11 @@ export default function App() {
       </footer>
 
       {/* Quiz Modal */}
-      {showQuizModal && (currentStudent || managerParticipant) && selectedDate === todayDate && selectedHalacha && selectedHalacha.quizEnabled !== false && (
+      {showQuizModal &&
+        (currentStudent || managerParticipant) &&
+        availableQuizDates.includes(selectedDate) &&
+        selectedHalacha &&
+        selectedHalacha.quizEnabled !== false && (
         <QuizModal
           student={currentStudent || managerParticipant!}
           halacha={selectedHalacha}

@@ -14,7 +14,11 @@ import {
   deleteField,
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
-import { getTodayInJerusalem } from './quizSchedule';
+import {
+  getTodayInJerusalem,
+  getUpcomingQuizAvailability,
+  isQuizDateAvailable,
+} from './quizSchedule';
 import { SUPER_ADMIN_EMAIL, API_BASE_URL } from './config';
 import {
   Student,
@@ -27,11 +31,13 @@ import {
   StudentLeaderboardItem,
   GradeType,
   QuizSubmission,
+  QuizAvailability,
   Invitation,
   Manager,
   PublicStudentSummary,
   DEFAULT_CLASSES,
   inferGradeFromClass,
+  getStudentRegistrationDocumentId,
 } from '../types';
 import {
   INITIAL_STUDENTS,
@@ -101,6 +107,33 @@ async function writeStudentAndPublicSummary(student: Student): Promise<void> {
     batch.delete(publicRef);
   }
   await batch.commit();
+}
+
+export async function fetchAdvanceQuizDates(today: string): Promise<string[]> {
+  const availability = await getDocs(query(
+    collection(db, 'quizAvailability'),
+    where('availableOn', '==', today)
+  ));
+  return availability.docs
+    .map((document) => document.data() as QuizAvailability)
+    .filter((entry) => entry.availableOn === today && entry.date > today)
+    .map((entry) => entry.date);
+}
+
+export async function syncAdvanceQuizAvailability(): Promise<void> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser?.emailVerified) {
+    throw new Error('נדרשת התחברות מנהלת מאומתת לעדכון לוח החידונים');
+  }
+
+  const availability = getUpcomingQuizAvailability();
+  for (let offset = 0; offset < availability.length; offset += 450) {
+    const batch = writeBatch(db);
+    availability.slice(offset, offset + 450).forEach((entry) => {
+      batch.set(doc(db, 'quizAvailability', entry.date), entry);
+    });
+    await batch.commit();
+  }
 }
 
 async function approveStudentAndPublicSummary(student: Student): Promise<void> {
@@ -343,15 +376,24 @@ export async function submitQuizApi(
   answers: Record<string, number>,
   confirmedStudy: boolean = false
 ) {
-  if (date !== getTodayInJerusalem()) {
-    throw new Error('ניתן להיבחן רק בחידון של היום');
+  const todayDate = getTodayInJerusalem();
+  if (!isQuizDateAvailable(todayDate, date)) {
+    throw new Error('אפשר להשלים מראש רק חידונים לתאריכים שחלים בשבת או בחג');
   }
   const firebaseUser = auth.currentUser;
   if (!firebaseUser?.emailVerified) {
     throw new Error('להגשת החידון יש להתחבר תחילה באמצעות Google SSO');
   }
-  const authHeaders = getAuthHeaders();
-  authHeaders.Authorization = `Bearer ${await firebaseUser.getIdToken()}`;
+
+  if (date !== todayDate) {
+    const availabilitySnapshot = await getDoc(doc(db, 'quizAvailability', date));
+    if (
+      !availabilitySnapshot.exists() ||
+      availabilitySnapshot.data().availableOn !== todayDate
+    ) {
+      throw new Error('החידון לתאריך זה אינו זמין להגשה מראש');
+    }
+  }
 
   // Firestore-first write path for the scoring workflow.
   try {
@@ -447,115 +489,9 @@ export async function submitQuizApi(
         : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודות לימוד לך, לכיתה ולשכבה!`,
     };
   } catch (firestoreErr) {
-    console.info('[Firestore] Direct quiz submission failed, trying legacy API:', firestoreErr);
+    console.error('[Firestore] Quiz submission failed:', firestoreErr);
+    throw firestoreErr;
   }
-
-  try {
-    const res = await fetch(API_BASE_URL + '/api/submit-quiz', {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({ studentId, date, answers, confirmedStudy }),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    }
-  } catch (e) {
-    console.info('[API] Falling back to seeded Firestore for submitQuizApi');
-  }
-
-  // Seeded fallback remains available.
-  const halachot = await getOrSeedFirestoreHalachot();
-  const halacha = halachot.find((h) => h.date === date);
-  if (!halacha) {
-    throw new Error('הלכה לא נמצאה לתאריך זה');
-  }
-  if (halacha.quizEnabled === false) {
-    throw new Error('המנהלת השביתה את החידון לתאריך זה');
-  }
-
-  const students = await fetchAllStudentRecords();
-  const studentIndex = students.findIndex((s) => s.id === studentId);
-  if (studentIndex === -1) {
-    throw new Error('תלמידה לא נמצאה');
-  }
-  const student = { ...students[studentIndex] };
-
-  if (student.completedDates.includes(date)) {
-    throw new Error('כבר הגשת את החידון היומי להיום!');
-  }
-
-  let correctCount = 0;
-  halacha.questions.forEach((q) => {
-    const selectedOption = answers[q.id];
-    if (selectedOption !== undefined && Number(selectedOption) === q.correctOptionIndex) {
-      correctCount++;
-    }
-  });
-
-  const isPerfect = correctCount === 4;
-  const studyPoints = confirmedStudy ? 5 : 0;
-  const questionPoints = correctCount * 5;
-  const bonusPoints = 0;
-  const earnedPoints = studyPoints + questionPoints + bonusPoints;
-  const previousPoints = student.points;
-  const newPoints = previousPoints + earnedPoints;
-
-  const submissionTime = new Date().toLocaleTimeString('he-IL', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const submission: QuizSubmission = {
-    date,
-    halachaId: halacha.id,
-    score: correctCount,
-    earnedPoints,
-    submittedAt: submissionTime,
-    answers,
-    ...(confirmedStudy ? { confirmedStudy: true } : {}),
-  };
-
-  student.points = newPoints;
-  if (!student.completedDates.includes(date)) {
-    student.completedDates.push(date);
-  }
-  student.submissions = {
-    ...student.submissions,
-    [date]: submission,
-  };
-
-  const batch = writeBatch(db);
-  batch.update(doc(db, 'students', student.id), {
-    points: student.points,
-    completedDates: student.completedDates,
-    [`submissions.${date}`]: submission,
-  });
-  const publicSummary = toPublicStudentSummary(student);
-  if (publicSummary) {
-    batch.set(doc(db, 'publicStudents', student.id), publicSummary);
-  }
-  await batch.commit();
-
-  const milestonesReached: PrizeMilestone[] = [];
-  DEFAULT_PRIZE_MILESTONES.forEach((m) => {
-    if (previousPoints < m.points && newPoints >= m.points) {
-      milestonesReached.push(m);
-    }
-  });
-
-  return {
-    success: true,
-    score: correctCount,
-    earnedPoints,
-    isPerfect,
-    previousPoints,
-    newPoints,
-    student,
-    milestonesReached,
-    message: isPerfect
-        ? `אלופה! ענית נכון על כל 4 השאלות וצברת ${earnedPoints} נקודות!`
-        : `כל הכבוד על ההשתתפות! צברת ${earnedPoints} נקודות לימוד לך, לכיתה ולשכבה!`,
-  };
 }
 
 export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData> {
@@ -878,24 +814,40 @@ export async function addStudentApi(student: Partial<Student>) {
 }
 
 export async function deleteStudentApi(id: string) {
+  let firestoreError: unknown;
   try {
-    const res = await fetch(API_BASE_URL + `/api/students/${id}`, {
+    const res = await fetch(`${API_BASE_URL}/api/students/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       return await parseJsonResponse(res);
     }
-  } catch (e) {
-    console.info('[API] Falling back to direct Firestore for deleteStudentApi');
+    if (contentType.includes('application/json')) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status !== 404) {
+        throw new Error(data.error || `שגיאה במחיקת התלמידה (${res.status})`);
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
   }
 
-  const batch = writeBatch(db);
-  batch.delete(doc(db, 'students', id));
-  batch.delete(doc(db, 'publicStudents', id));
-  await batch.commit();
-  const allStudents = await fetchAllStudentRecords();
-  return { success: true, students: allStudents };
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'students', id));
+    batch.delete(doc(db, 'publicStudents', id));
+    await batch.commit();
+    const allStudents = await fetchAllStudentRecords();
+    return { success: true, students: allStudents };
+  } catch (error) {
+    firestoreError = error;
+  }
+
+  throw firestoreError instanceof Error
+    ? firestoreError
+    : new Error('לא ניתן למחוק את בקשת התלמידה. בדקי את הרשאות Firestore ונסי שוב.');
 }
 
 export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], replaceAll = false) {
@@ -1260,7 +1212,7 @@ export async function registerStudentApi(studentData: {
     const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
     const derivedGrade = inferGradeFromClass(chosenClass);
     const newStudent: Student = {
-      id: `s-reg-${Date.now()}`,
+      id: getStudentRegistrationDocumentId(effectiveEmail),
       fullName: studentData.fullName.trim(),
       className: chosenClass,
       grade: derivedGrade,
@@ -1315,7 +1267,7 @@ export async function registerStudentApi(studentData: {
   const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
   const chosenClass = studentData.className?.trim() || DEFAULT_CLASSES[0];
   const newStudent: Student = {
-    id: `s-reg-${effectiveEmail.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+    id: getStudentRegistrationDocumentId(effectiveEmail),
     fullName: studentData.fullName.trim(),
     className: chosenClass,
     grade: inferGradeFromClass(chosenClass),
@@ -1385,15 +1337,18 @@ export async function approveStudentApi(id: string) {
 }
 
 export async function rejectStudentApi(id: string) {
+  let firestoreError: unknown;
   try {
     const studentRef = doc(db, 'students', id);
     const studentSnap = await getDoc(studentRef);
     if (!studentSnap.exists()) throw new Error('תלמידה לא נמצאה');
-    const student = { ...(studentSnap.data() as Student), status: 'rejected' as const };
-    await writeStudentAndPublicSummary(student);
-    const students = await fetchAllStudentRecords();
-    return { success: true, students };
+    const batch = writeBatch(db);
+    batch.update(studentRef, { status: 'rejected' });
+    batch.delete(doc(db, 'publicStudents', id));
+    await batch.commit();
+    return { success: true };
   } catch (e) {
+    firestoreError = e;
     console.info('[Firestore] Direct rejection failed, trying legacy API:', e);
   }
 
@@ -1402,20 +1357,25 @@ export async function rejectStudentApi(id: string) {
       method: 'POST',
       headers: getAuthHeaders(),
     });
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       return await parseJsonResponse(res);
     }
-  } catch (e) {
-    console.info('[API] Falling back to seeded Firestore for rejectStudentApi');
+    if (contentType.includes('application/json')) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status !== 404) {
+        throw new Error(data.error || `שגיאה בדחיית התלמידה (${res.status})`);
+      }
+    }
+  } catch (apiError) {
+    if (!(apiError instanceof TypeError)) {
+      throw apiError;
+    }
   }
 
-  const studentRef = doc(db, 'students', id);
-  const studentSnap = await getDoc(studentRef);
-  if (!studentSnap.exists()) throw new Error('תלמידה לא נמצאה');
-  const student = { ...(studentSnap.data() as Student), status: 'rejected' as const };
-  await writeStudentAndPublicSummary(student);
-  const students = await fetchAllStudentRecords();
-  return { success: true, students };
+  throw firestoreError instanceof Error
+    ? firestoreError
+    : new Error('לא ניתן לדחות את בקשת התלמידה. בדקי את הרשאות Firestore ונסי שוב.');
 }
 
 export async function resetStudentQuizSubmissionApi(

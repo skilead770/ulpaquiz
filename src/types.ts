@@ -19,6 +19,10 @@ export function inferGradeFromClass(className: string): GradeType {
   return 'ט';
 }
 
+export function getStudentRegistrationDocumentId(email: string): string {
+  return `s-reg-${email.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`;
+}
+
 export interface Question {
   id: string;
   text: string;
@@ -37,6 +41,12 @@ export interface DailyHalacha {
   source?: string; // e.g., 'ספר אהלי הלכה'
   content: string;
   questions: [Question, Question, Question, Question]; // exactly 4 questions
+}
+
+export interface QuizAvailability {
+  date: string;
+  availableOn: string;
+  reason: 'friday' | 'erev-yom-tov';
 }
 
 export interface QuizSubmission {

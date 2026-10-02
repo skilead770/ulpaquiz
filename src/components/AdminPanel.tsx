@@ -585,7 +585,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         onRefreshData();
       } catch (err) {
         console.error(err);
-        alert('נכשלה מחיקת התלמידה');
+        const message = err instanceof Error ? err.message : 'שגיאה לא ידועה';
+        alert(`נכשלה מחיקת התלמידה: ${message}`);
       }
     }
   };
@@ -608,7 +609,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         onRefreshData();
       } catch (err) {
         console.error(err);
-        alert('נכשלה דחיית התלמידה');
+        const message = err instanceof Error ? err.message : 'שגיאה לא ידועה';
+        alert(`נכשלה דחיית התלמידה: ${message}`);
       }
     }
   };

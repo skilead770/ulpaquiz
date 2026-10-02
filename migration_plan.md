@@ -1,7 +1,7 @@
-# Migration Blueprint: Node.js (Render) to Firebase Free Tier (No Credit Card Required)
+# Firebase Architecture Blueprint
 
 ## Goal
-Move from the current Node.js/Express server to a Firebase-based architecture that stays inside the free-tier / no-billing path and does not require a Google payment method.
+Use a Firebase-based architecture that stays inside the free-tier / no-billing path and does not require a Google payment method.
 
 This plan is intentionally designed to avoid any feature that typically triggers billing or a credit-card requirement.
 
@@ -31,10 +31,6 @@ This plan deliberately avoids:
 
 ## 2. Target Architecture
 
-OLD ARCHITECTURE:
-[Frontend App] -> [Node.js Express Server on Render] -> [Local JSON / Firestore sync logic]
-
-NEW ARCHITECTURE:
 [Frontend App] -> [Firebase Auth] -> [Firestore] -> [Firebase Hosting]
 
 This means the browser talks directly to Firebase, and access control is enforced with Firestore Security Rules instead of a custom Node server.
