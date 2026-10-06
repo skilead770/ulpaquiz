@@ -53,7 +53,7 @@ During the initial review of the `ulpaquiz` codebase, several critical architect
 ### E. Quiz Date Availability & Seed Data
 - **Root Cause for Missing Questions:** The student dashboard filters quizzes to the active window starting from today's date in Jerusalem (`2026-10-06`). The database only had mock entries from July/August.
 - **Fix:** Seeded a daily Halacha with 4 multiple-choice questions for **`2026-10-06`** (*הלכות ברכות - ברכת המזון וברכות הנהנין*) into staging Firestore.
-- Verified test student (`eladshneur@gmail.com`) can log in, view today's Halacha, and take the quiz.
+- Verified the registered test student account can log in, view today's Halacha, and take the quiz.
 
 ### F. Git Version Control
 - Created and committed all changes to branch **`staging`**.
@@ -98,13 +98,14 @@ npm run dev
 | :--- | :--- | :--- |
 | **Staging App URL** | `https://ulpaquiz-staging.web.app` | Active test environment |
 | **Super Admin Account** | `skilead770@gmail.com` | Automatically routed to Admin Panel |
-| **Test Student Account** | `eladshneur@gmail.com` | Approved student in class ט'1 |
+| **Test Student Account** | *(Your registered student Gmail)* | Approved student in class ט'1 |
 | **GitHub PR Link** | [Open Pull Request](https://github.com/skilead770/ulpaquiz/pull/new/staging) | For merging staging into main |
 
 ---
 
 ## 5. Recommended Next Steps for Tomorrow
 
-1. **Test Quiz Submission Flow**: Log in as `eladshneur@gmail.com` on staging, answer the questions, submit, and verify that points update correctly.
+1. **Test Quiz Submission Flow**: Log in with your test student account on staging, answer the questions, submit, and verify that points update correctly.
 2. **Verify Admin Dashboard**: Log in as `skilead770@gmail.com`, check student approval, view the leaderboard, and test adding a Halacha for tomorrow (`2026-10-07`).
 3. **Merge to Production**: Once satisfied with testing on staging, open the pull request to merge `staging` into `main` and deploy to production.
+
