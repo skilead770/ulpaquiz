@@ -41,10 +41,8 @@ import {
 } from '../types';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { auth } from '../lib/firebaseClient';
-import { ExcelUploader } from './ExcelUploader';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import {
-  bulkImportStudentsApi,
   saveHalachaApi,
   deleteHalachaApi,
   generateAiHalachaApi,
@@ -621,57 +619,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [studentFilterClass, setStudentFilterClass] = useState<string>('ALL');
   const [studentSortOrder, setStudentSortOrder] = useState<'class' | 'name' | 'points'>('class');
 
-  // Manual Add Student State
-  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
-  const [newStudent, setNewStudent] = useState<{
-    fullName: string;
-    grade: GradeType;
-    className: string;
-    username: string;
-    points: number;
-  }>({
-    fullName: '',
-    grade: 'ט',
-    className: "ט'1",
-    username: '',
-    points: 0,
-  });
-  const [isSavingStudent, setIsSavingStudent] = useState(false);
-  const [studentError, setStudentError] = useState<string | null>(null);
-
-  const handleAddStudent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStudent.fullName.trim() || !newStudent.className.trim()) {
-      setStudentError('נא למלא שם מלא וכיתה');
-      return;
-    }
-    setIsSavingStudent(true);
-    setStudentError(null);
-    try {
-      await addStudentApi({
-        fullName: newStudent.fullName.trim(),
-        grade: newStudent.grade,
-        className: newStudent.className.trim(),
-        username: newStudent.username.trim() || undefined,
-        points: Number(newStudent.points) || 0,
-      });
-      setIsAddStudentModalOpen(false);
-      setNewStudent({
-        fullName: '',
-        grade: 'ט',
-        className: "ט'1",
-        username: '',
-        points: 0,
-      });
-      onRefreshData();
-    } catch (err: any) {
-      console.error(err);
-      setStudentError(err?.message || 'אירעה שגיאה בהוספת התלמידה');
-    } finally {
-      setIsSavingStudent(false);
-    }
-  };
-
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (confirm(`האם למחוק את התלמידה "${studentName}"?`)) {
       try {
@@ -1056,16 +1003,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       { id: 'q4', text: 'שאלה 4', options: ['תשובה 1', 'תשובה 2', 'תשובה 3', 'תשובה 4'], correctOptionIndex: 0, explanation: '' },
     ],
   });
-
-  const handleExcelImport = async (parsedStudents: Partial<Student>[]) => {
-    try {
-      await bulkImportStudentsApi(parsedStudents);
-      onRefreshData();
-    } catch (e) {
-      console.error(e);
-      alert('נכשלה שמירת רשימת התלמידות מהאקסל');
-    }
-  };
 
   const handleGenerateAiHalacha = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2529,8 +2466,6 @@ ${targetHalacha.content}
             </div>
           )}
 
-          <ExcelUploader onStudentsLoaded={handleExcelImport} />
-
           {/* Student Search & Table */}
           <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
@@ -2543,15 +2478,8 @@ ${targetHalacha.content}
                 </p>
               </div>
 
-              {/* Filters & Add Manual Button */}
+              {/* Filters */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setIsAddStudentModalOpen(true)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  <span>הוספת תלמידה ידנית</span>
-                </button>
 
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
@@ -2679,139 +2607,7 @@ ${targetHalacha.content}
             </div>
           </div>
 
-          {/* Add Student Modal */}
-          {isAddStudentModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
-              <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-4 sm:p-6 space-y-4 sm:space-y-5 my-auto max-h-[92vh] overflow-y-auto">
-                <div className="flex items-center justify-between border-b border-amber-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
-                      <UserPlus className="w-5 h-5" />
-                    </div>
-                    <h3 className="text-base sm:text-lg font-extrabold text-amber-950 font-['Heebo']">
-                      הוספת תלמידה חדשה
-                    </h3>
-                  </div>
-                  <button
-                    onClick={() => setIsAddStudentModalOpen(false)}
-                    className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
 
-                <form onSubmit={handleAddStudent} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      שם מלא <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="לדוגמה: תמר שפירא"
-                      value={newStudent.fullName}
-                      onChange={(e) => setNewStudent({ ...newStudent, fullName: e.target.value })}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        כיתה <span className="text-rose-500">*</span>
-                      </label>
-                      <select
-                        value={newStudent.className}
-                        onChange={(e) => {
-                          const cls = e.target.value;
-                          setNewStudent({
-                            ...newStudent,
-                            className: cls,
-                            grade: inferGradeFromClass(cls),
-                          });
-                        }}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
-                      >
-                        {classesList.map((c) => (
-                          <option key={c} value={c}>
-                            כיתה {c}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        שכבה <span className="text-rose-500">*</span>
-                      </label>
-                      <select
-                        value={newStudent.grade}
-                        onChange={(e) => setNewStudent({ ...newStudent, grade: e.target.value as GradeType })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
-                      >
-                        <option value="ט">שכבת ט'</option>
-                        <option value="י">שכבת י'</option>
-                        <option value="יא">שכבת יא'</option>
-                        <option value="יב">שכבת יב'</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        שם משתמש
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="ייווצר אוטומטית אם ריק"
-                        value={newStudent.username}
-                        onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        ניקוד התחלתי במבצע
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={newStudent.points}
-                        onChange={(e) => setNewStudent({ ...newStudent, points: Number(e.target.value) })}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  {studentError && (
-                    <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                      {studentError}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddStudentModalOpen(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-                    >
-                      ביטול
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSavingStudent}
-                      className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>{isSavingStudent ? 'שומר...' : 'שמור תלמידה'}</span>
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
 
           {/* Edit Student Modal */}
           {editingStudent && (

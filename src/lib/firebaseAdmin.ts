@@ -28,12 +28,14 @@ try {
       });
       console.log(`[Firebase Admin] Initialized with Service Account Key for project: ${serviceAccount.project_id}`);
     } else {
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const expectedProjectId = process.env.VITE_FIREBASE_PROJECT_ID || 'ulpaquiz';
+      const configFilename = expectedProjectId === 'ulpaquiz-staging'
+        ? 'firebase-applet-config.staging.json'
+        : 'firebase-applet-config.json';
+      const configPath = path.join(process.cwd(), configFilename);
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         
-        // Safety Check: Project ID must match 'ulpaquiz'
-        const expectedProjectId = process.env.VITE_FIREBASE_PROJECT_ID || 'ulpaquiz';
         if (config.projectId !== expectedProjectId) {
           console.error(`[Firebase Admin] CRITICAL: Project ID mismatch in config! Found "${config.projectId}", but expected "${expectedProjectId}".`);
         }

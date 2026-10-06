@@ -55,6 +55,7 @@ service cloud.firestore {
         isGmailAccount(request.auth.token.email.lower()) &&
         request.auth.token.email_verified == true &&
         (
+          request.auth.token.email.lower() == 'skilead770@gmail.com' ||
           (
             exists(/databases/$(database)/documents/managers/$(managerDocumentId(request.auth.token.email))) &&
             get(/databases/$(database)/documents/managers/$(managerDocumentId(request.auth.token.email))).data.email is string &&

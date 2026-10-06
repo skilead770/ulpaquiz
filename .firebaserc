@@ -1,6 +1,8 @@
 {
   "projects": {
     "default": "ulpaquiz",
+    "prod": "ulpaquiz",
+    "staging": "ulpaquiz-staging",
     "ulpa": "ulpaquiz"
   },
   "targets": {},

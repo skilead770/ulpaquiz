@@ -16,6 +16,7 @@ import {
 import { auth, db } from './firebaseClient';
 import { Student, Manager } from '../types';
 import { validateGmailAddress } from './gmailValidator';
+import { SUPER_ADMIN_EMAIL } from './config';
 
 export interface AuthSession {
   user: FirebaseUser | null;
@@ -149,6 +150,24 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
   }
 
   const normalizedEmail = secureCheck.normalizedEmail || email;
+
+  // Immediately grant admin role to the configured Super Admin
+  if (SUPER_ADMIN_EMAIL && (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase() || email === SUPER_ADMIN_EMAIL.toLowerCase())) {
+    return {
+      success: true,
+      role: 'admin',
+      email: normalizedEmail,
+      name: name || `מנהל ראשי (${SUPER_ADMIN_EMAIL.split('@')[0]})`,
+      picture,
+      manager: {
+        email: normalizedEmail,
+        name: name || `מנהל ראשי (${SUPER_ADMIN_EMAIL.split('@')[0]})`,
+        role: 'superadmin',
+        addedAt: new Date().toISOString(),
+      },
+      message: `שלום מנהל המערכת (${name || normalizedEmail})!`,
+    };
+  }
 
   try {
     const managersRef = collection(db, 'managers');

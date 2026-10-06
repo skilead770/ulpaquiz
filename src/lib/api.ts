@@ -12,6 +12,7 @@ import {
   runTransaction,
   writeBatch,
   deleteField,
+  limit,
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
 import {
@@ -238,15 +239,9 @@ export async function fetchStudents(): Promise<Student[]> {
     const managerSnap = await getDocs(query(collection(db, 'managers'), where('email', '==', email)));
     if (!managerSnap.empty) {
       const snap = await getDocs(collection(db, 'students'));
-      const students = snap.docs
+      return snap.docs
         .map((studentDoc) => studentDoc.data() as Student)
         .filter((student) => !student.managerParticipation);
-      try {
-        await syncPublicStudentSummaries(students);
-      } catch (error) {
-        console.error('[Firestore] Could not sync public leaderboard summaries:', error);
-      }
-      return students;
     }
 
     const snap = await getDocs(query(collection(db, 'students'), where('email', '==', email)));
@@ -341,13 +336,9 @@ export async function fetchHalachot(): Promise<DailyHalacha[]> {
 
 export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
   try {
-    const snap = await getDocs(collection(db, 'halachot'));
+    const snap = await getDocs(query(collection(db, 'halachot'), where('date', '==', date), limit(1)));
     if (!snap.empty) {
-      const list: DailyHalacha[] = [];
-      snap.forEach((d) => list.push(d.data() as DailyHalacha));
-      const found = list.find((h) => h.date === date);
-      if (found) return found;
-      if (list.length > 0) return list[0];
+      return snap.docs[0].data() as DailyHalacha;
     }
   } catch (e) {
     console.info('[Firestore] Direct halacha-by-date read failed, falling back to API:', e);
@@ -397,13 +388,11 @@ export async function submitQuizApi(
 
   // Firestore-first write path for the scoring workflow.
   try {
-    const halachaSnap = await getDocs(collection(db, 'halachot'));
-    const halachaList: DailyHalacha[] = [];
-    halachaSnap.forEach((d) => halachaList.push(d.data() as DailyHalacha));
-    const halacha = halachaList.find((h) => h.date === date);
-    if (!halacha) {
+    const halachaSnap = await getDocs(query(collection(db, 'halachot'), where('date', '==', date), limit(1)));
+    if (halachaSnap.empty) {
       throw new Error('הלכה לא נמצאה לתאריך זה');
     }
+    const halacha = halachaSnap.docs[0].data() as DailyHalacha;
     if (halacha.quizEnabled === false) {
       throw new Error('המנהלת השביתה את החידון לתאריך זה');
     }

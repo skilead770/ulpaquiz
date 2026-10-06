@@ -1,12 +1,15 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import prodConfig from '../../firebase-applet-config.json';
+import stagingConfig from '../../firebase-applet-config.staging.json';
 import { FIREBASE_PROJECT_ID } from './config';
+
+const firebaseConfig = FIREBASE_PROJECT_ID === 'ulpaquiz-staging' ? stagingConfig : prodConfig;
 
 // Safety Check: Ensure the app is running against the correct Firebase project
 if (!firebaseConfig.projectId) {
-  throw new Error('[Firebase] Missing firebase config projectId. Check firebase-applet-config.json.');
+  throw new Error('[Firebase] Missing firebase config projectId.');
 }
 
 if (firebaseConfig.projectId !== FIREBASE_PROJECT_ID) {
