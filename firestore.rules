@@ -88,7 +88,7 @@ service cloud.firestore {
         request.auth.token.email is string &&
         isGmailAccount(request.auth.token.email.lower()) &&
         resource.data.email is string &&
-        request.auth.token.email == resource.data.email;
+        request.auth.token.email.lower() == resource.data.email.lower();
     }
 
     function hasMatchingPublicSummary(studentId) {
@@ -102,7 +102,8 @@ service cloud.firestore {
         student.status == 'approved' &&
         (!('managerParticipation' in student) || student.managerParticipation != true) &&
         studentId == student.id &&
-        request.auth.token.email == student.email &&
+        student.email is string &&
+        request.auth.token.email.lower() == student.email.lower() &&
         request.resource.data.id == student.id &&
         request.resource.data.fullName == student.fullName &&
         request.resource.data.className == student.className &&

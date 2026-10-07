@@ -47,6 +47,7 @@ import {
   INITIAL_MANAGERS,
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
+import { validateGmailAddress } from './gmailValidator';
 
 // Token Management for secure API requests.
 // Keep the token in memory only so a browser compromise or local persistence does not expose an authenticated session.
@@ -1180,52 +1181,58 @@ export async function registerStudentApi(studentData: {
   message: string;
   student?: Student;
 }> {
-  const cleanEmail = (studentData.email || studentData.username || '').trim().toLowerCase();
-  const effectiveEmail = cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@gmail.com`;
+  const rawInput = (studentData.email || studentData.username || '').trim();
+  const gmailValidation = validateGmailAddress(rawInput);
+  if (!gmailValidation.isValid || !gmailValidation.normalizedEmail) {
+    throw new Error(gmailValidation.error || 'כתובת Gmail אינה תקינה');
+  }
+  const effectiveEmail = gmailValidation.normalizedEmail;
+  const registrationDocId = getStudentRegistrationDocumentId(effectiveEmail);
+  const baseUser = effectiveEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
 
-  try {
-    const existingStudents = await fetchAllStudentRecords();
-    const existing = existingStudents.find((s) => {
-      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-      const sUser = s.username ? s.username.trim().toLowerCase() : '';
-      return sEmail === effectiveEmail || sUser === effectiveEmail || sUser === cleanEmail.split('@')[0];
-    });
+  // Check if current user is logged in as this email
+  const currentUser = auth.currentUser;
+  const isCurrentUser = currentUser?.emailVerified && currentUser.email?.trim().toLowerCase() === effectiveEmail;
 
-    if (existing) {
-      if (existing.status === 'approved') {
-        return {
-          success: true,
-          status: 'approved',
-          autoApproved: true,
-          message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
-          student: existing,
-        };
+  if (isCurrentUser) {
+    try {
+      const existingSnap = await getDoc(doc(db, 'students', registrationDocId));
+      if (existingSnap.exists()) {
+        const existing = existingSnap.data() as Student;
+        if (existing.status === 'approved') {
+          return {
+            success: true,
+            status: 'approved',
+            autoApproved: true,
+            message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
+            student: existing,
+          };
+        }
+        if (existing.status === 'pending') {
+          return {
+            success: true,
+            status: 'pending',
+            autoApproved: false,
+            message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
+            student: existing,
+          };
+        }
+        throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
       }
-      if (existing.status === 'pending') {
-        return {
-          success: true,
-          status: 'pending',
-          autoApproved: false,
-          message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-          student: existing,
-        };
-      }
-      throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
+    } catch (e: any) {
+      if (e.message && e.message.includes('נדחתה')) throw e;
     }
+  }
 
-    const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
-    let finalUsername = baseUser;
-    let counter = 1;
-    while (existingStudents.some((s) => s.username.toLowerCase() === finalUsername.toLowerCase())) {
-      finalUsername = `${baseUser}${counter++}`;
-    }
-
-    let matchedInvitation: Invitation | undefined;
-    if (studentData.invitationCode) {
+  // Validate invitation code if provided
+  let matchedInvitation: Invitation | undefined;
+  if (studentData.invitationCode?.trim()) {
+    try {
+      const code = studentData.invitationCode.trim().toUpperCase();
       const invitationSnap = await getDocs(collection(db, 'invitations'));
       const invDoc = invitationSnap.docs.find((d) => {
         const item = d.data() as Invitation;
-        return item.code.trim().toUpperCase() === studentData.invitationCode!.trim().toUpperCase() && item.active;
+        return item.code.trim().toUpperCase() === code && item.active;
       });
 
       if (invDoc) {
@@ -1233,73 +1240,22 @@ export async function registerStudentApi(studentData: {
         if (item.maxUses > 0 && item.usedCount >= item.maxUses) {
           throw new Error('קוד ההזמנה הגיע למכסת השימושים המרבית');
         }
-        matchedInvitation = { ...item, usedCount: item.usedCount + 1 };
-        await setDoc(doc(db, 'invitations', invDoc.id), matchedInvitation);
+        matchedInvitation = item;
+      } else {
+        throw new Error('קוד הזמנה לא קיים או שאינו פעיל');
       }
+    } catch (invErr: any) {
+      if (invErr.message) throw invErr;
     }
-
-    const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
-    const derivedGrade = inferGradeFromClass(chosenClass);
-    const newStudent: Student = {
-      id: getStudentRegistrationDocumentId(effectiveEmail),
-      fullName: studentData.fullName.trim(),
-      className: chosenClass,
-      grade: derivedGrade,
-      username: finalUsername,
-      email: effectiveEmail,
-      points: 0,
-      completedDates: [],
-      submissions: {},
-      status: 'pending',
-      registeredAt: new Date().toISOString(),
-      ...(studentData.invitationCode?.trim()
-        ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
-        : {}),
-    };
-
-    await setDoc(doc(db, 'students', newStudent.id), newStudent);
-
-    return {
-      success: true,
-      status: 'pending',
-      autoApproved: false,
-      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-      student: newStudent,
-    };
-  } catch (firestoreErr: any) {
-    console.info('[Firestore] Direct registration failed, falling back to API:', firestoreErr);
   }
 
-  try {
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(studentData),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    } else {
-      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה ברישום' }));
-      throw new Error(err.error || 'שגיאה ברישום');
-    }
-  } catch (e: any) {
-    if (e.message && (e.message.includes('Gmail') || e.message.includes('שם מלא'))) {
-      throw e;
-    }
-    console.info('[API] Falling back to seeded Firestore for registerStudentApi');
-  }
-
-  if (studentData.invitationCode?.trim()) {
-    throw new Error('הרשמה עם קוד הזמנה דורשת חיבור לשרת. נסי שוב מאוחר יותר.');
-  }
-
-  const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
-  const chosenClass = studentData.className?.trim() || DEFAULT_CLASSES[0];
+  const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
+  const derivedGrade = inferGradeFromClass(chosenClass);
   const newStudent: Student = {
-    id: getStudentRegistrationDocumentId(effectiveEmail),
+    id: registrationDocId,
     fullName: studentData.fullName.trim(),
     className: chosenClass,
-    grade: inferGradeFromClass(chosenClass),
+    grade: derivedGrade,
     username: baseUser,
     email: effectiveEmail,
     points: 0,
@@ -1307,21 +1263,38 @@ export async function registerStudentApi(studentData: {
     submissions: {},
     status: 'pending',
     registeredAt: new Date().toISOString(),
+    ...(studentData.invitationCode?.trim()
+      ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
+      : {}),
   };
+
   try {
     await setDoc(doc(db, 'students', newStudent.id), newStudent);
-  } catch (error) {
-    console.error('[Registration] Direct Firestore registration failed:', error);
+    return {
+      success: true,
+      status: 'pending',
+      autoApproved: false,
+      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
+      student: newStudent,
+    };
+  } catch (error: any) {
+    console.info('[Registration] Direct Firestore registration attempt failed, trying fallback:', error);
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(studentData),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await parseJsonResponse(res);
+      }
+    } catch {
+      // Ignore static Hosting HTML fallback failure
+    }
+
     throw new Error('לא ניתן להשלים את ההרשמה. ייתכן שכבר קיימת בקשה לכתובת זו; התחברי באמצעות Google או פני למנהלת.');
   }
-
-  return {
-    success: true,
-    status: 'pending',
-    autoApproved: false,
-    message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-    student: newStudent,
-  };
 }
 
 export async function approveStudentApi(id: string) {

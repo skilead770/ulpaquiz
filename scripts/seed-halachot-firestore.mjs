@@ -14,11 +14,14 @@ const halachot = dbData.halachot || [];
 console.log(`Found ${halachot.length} Halachot in db.json.`);
 
 // Look for service account
-const defaultKeyPath = 'C:\\Users\\gh7358\\Downloads\\ulpaquiz-firebase-adminsdk-fbsvc-4e51589908.json';
-const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || (fs.existsSync(defaultKeyPath) ? defaultKeyPath : null);
+const credPathEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const localKeyPath = path.resolve(__dirname, '../serviceAccountKey.json');
+const keyPath = credPathEnv && fs.existsSync(credPathEnv)
+  ? credPathEnv
+  : (fs.existsSync(localKeyPath) ? localKeyPath : null);
 
 if (!keyPath) {
-  console.error('No service account found. Please provide GOOGLE_APPLICATION_CREDENTIALS or use the Admin Panel UI.');
+  console.error('No service account found. Please provide GOOGLE_APPLICATION_CREDENTIALS or place serviceAccountKey.json in the project root.');
   process.exit(1);
 }
 

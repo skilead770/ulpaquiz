@@ -16,7 +16,8 @@
     "deploy:staging": "npm run build:staging && npx firebase-tools deploy --only hosting --project staging",
     "deploy:staging:firestore": "npx firebase-tools deploy --only firestore --project staging",
     "deploy:prod": "npm run build:firebase && npx firebase-tools deploy --only hosting --project prod",
-    "deploy:prod:rules": "npx firebase-tools deploy --only firestore:rules --project prod"
+    "deploy:prod:rules": "npx firebase-tools deploy --only firestore:rules --project prod",
+    "deploy:prod:firestore": "npx firebase-tools deploy --only firestore --project prod"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -7,7 +7,17 @@ import { getFirestore } from 'firebase-admin/firestore';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const saPath = 'C:\\Users\\gh7358\\Downloads\\ulpaquiz-firebase-adminsdk-fbsvc-4e51589908.json';
+const credPathEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const localKeyPath = path.resolve(__dirname, '../serviceAccountKey.json');
+const saPath = credPathEnv && fs.existsSync(credPathEnv)
+  ? credPathEnv
+  : (fs.existsSync(localKeyPath) ? localKeyPath : null);
+
+if (!saPath) {
+  console.error('No service account found. Please provide GOOGLE_APPLICATION_CREDENTIALS or place serviceAccountKey.json in the project root.');
+  process.exit(1);
+}
+
 const sa = JSON.parse(fs.readFileSync(saPath, 'utf-8'));
 
 const app = initializeApp({ credential: cert(sa) });
