@@ -1881,6 +1881,45 @@ ${targetHalacha.content}
                   </div>
                 </div>
 
+                {/* Instant Sync from Year Halachot JSON */}
+                <div className="bg-amber-500/10 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h5 className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-amber-700" />
+                      סנכרון מיידי ממאגר ההלכות המובנה (489 הלכות לשנת תשפ״ז)
+                    </h5>
+                    <p className="text-[11px] text-amber-900 mt-0.5">
+                      טוען ישירות את כל ההלכות והתאריכים המנותחים מתוך data/db.json אל מסד הנתונים Firestore.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsImportingDoc(true);
+                      setImportDocMsg({ type: 'info', text: 'טוען 489 הלכות ומסנכרן ל-Firestore...' });
+                      try {
+                        const { default: yearHalachot } = await import('../data/yearHalachot.json');
+                        const res = await bulkImportHalachotApi(yearHalachot as DailyHalacha[]);
+                        setImportDocMsg({
+                          type: 'success',
+                          text: `סונכרנו בהצלחה ${res.addedCount || yearHalachot.length} הלכות לשנת תשפ״ז ל-Firestore!`,
+                        });
+                        onRefreshData();
+                      } catch (err: any) {
+                        console.error('Sync error:', err);
+                        setImportDocMsg({ type: 'error', text: err?.message || 'שגיאה בסנכרון ההלכות' });
+                      } finally {
+                        setIsImportingDoc(false);
+                      }
+                    }}
+                    disabled={isImportingDoc}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 shrink-0 disabled:opacity-50 shadow-xs cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isImportingDoc ? 'animate-spin' : ''}`} />
+                    <span>{isImportingDoc ? 'מסנכרן...' : 'סנכרן את כל 489 ההלכות עכשיו'}</span>
+                  </button>
+                </div>
+
                 <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/80 pb-2">
                     <label className="block text-xs font-bold text-emerald-950">

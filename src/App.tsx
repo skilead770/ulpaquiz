@@ -105,7 +105,19 @@ export default function App() {
             : 'לא ניתן לטעון את רשימת התלמידות'
         );
       });
-    const halachotLoad = fetchHalachot()
+    const isAdmin = currentStudentId === 'admin';
+    const today = getTodayInJerusalem();
+    let datesToFetch: string[] | undefined = undefined;
+    if (!isAdmin) {
+      const windowDates = getStudentQuizDateWindow(today);
+      const [year, month, day] = today.split('-').map(Number);
+      const pastDates = [-3, -2, -1].map((offset) =>
+        new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10)
+      );
+      datesToFetch = Array.from(new Set([...pastDates, ...windowDates]));
+    }
+
+    const halachotLoad = fetchHalachot(datesToFetch)
       .then(setHalachot)
       .catch((error: unknown) => {
         console.error('[Data] Could not load halachot:', error);

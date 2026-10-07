@@ -311,13 +311,26 @@ export async function getOrCreateManagerParticipant(): Promise<Student> {
   }, { maxAttempts: 1 });
 }
 
-export async function fetchHalachot(): Promise<DailyHalacha[]> {
+export async function fetchHalachot(dates?: string[]): Promise<DailyHalacha[]> {
   try {
-    const snap = await getDocs(collection(db, 'halachot'));
-    if (!snap.empty) {
-      const list: DailyHalacha[] = [];
-      snap.forEach((d) => list.push(d.data() as DailyHalacha));
-      return list;
+    if (dates && dates.length > 0) {
+      const results: DailyHalacha[] = [];
+      for (let i = 0; i < dates.length; i += 30) {
+        const chunk = dates.slice(i, i + 30);
+        const q = query(collection(db, 'halachot'), where('date', 'in', chunk));
+        const snap = await getDocs(q);
+        snap.forEach((d) => results.push(d.data() as DailyHalacha));
+      }
+      if (results.length > 0) {
+        return results;
+      }
+    } else {
+      const snap = await getDocs(collection(db, 'halachot'));
+      if (!snap.empty) {
+        const list: DailyHalacha[] = [];
+        snap.forEach((d) => list.push(d.data() as DailyHalacha));
+        return list;
+      }
     }
   } catch (e) {
     console.info('[Firestore] Direct halacha read failed, falling back to API:', e);
@@ -326,12 +339,20 @@ export async function fetchHalachot(): Promise<DailyHalacha[]> {
   try {
     const res = await fetch(API_BASE_URL + '/api/halachot');
     if (res.ok) {
-      return await parseJsonResponse(res);
+      const data = await parseJsonResponse(res);
+      if (dates && dates.length > 0 && Array.isArray(data)) {
+        return data.filter((h: DailyHalacha) => dates.includes(h.date));
+      }
+      return data;
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for fetchHalachot');
   }
-  return getOrSeedFirestoreHalachot();
+  const seeded = await getOrSeedFirestoreHalachot();
+  if (dates && dates.length > 0) {
+    return seeded.filter((h) => dates.includes(h.date));
+  }
+  return seeded;
 }
 
 export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
@@ -840,16 +861,35 @@ export async function deleteStudentApi(id: string) {
 }
 
 export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], replaceAll = false) {
-  const res = await fetch(API_BASE_URL + '/api/admin/bulk-import-halachot', {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ halachot, replaceAll }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'שגיאה ביבוא הלכות');
+  try {
+    const res = await fetch(API_BASE_URL + '/api/admin/bulk-import-halachot', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ halachot, replaceAll }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.info('[API] Backend unavailable, writing directly to Firestore via writeBatch');
   }
-  return res.json();
+
+  // Direct Firestore batch upload in chunks of 400 (under the 500 operation limit)
+  let addedCount = 0;
+  let updatedCount = 0;
+  const chunkSize = 400;
+  for (let i = 0; i < halachot.length; i += chunkSize) {
+    const chunk = halachot.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      if (!item.id || !item.date) continue;
+      const ref = doc(db, 'halachot', item.id);
+      batch.set(ref, item, { merge: true });
+      addedCount++;
+    }
+    await batch.commit();
+  }
+  return { success: true, addedCount, updatedCount };
 }
 
 export async function parseDocContentApi(data: ArrayBuffer | Uint8Array | string) {
