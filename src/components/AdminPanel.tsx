@@ -31,6 +31,7 @@ import {
 import {
   Student,
   DailyHalacha,
+  QuizSubmission,
   PrizeReportItem,
   PrizeMilestone,
   Question,
@@ -68,7 +69,7 @@ import {
   subscribeToCalendarAnnotations,
   saveCalendarAnnotationApi,
 } from '../lib/api';
-import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp } from 'lucide-react';
+import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp, BarChart3, Eye, Copy, ChevronLeft, ChevronRight, TrendingUp, CheckCircle } from 'lucide-react';
 import { signInWithGoogleSSO } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { getTodayInJerusalem } from '../lib/quizSchedule';
@@ -314,7 +315,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDailyDedicationChange,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'hebrew-date' | 'students' | 'prizes' | 'managers' | 'classes' | 'dedication'
+    'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication'
   >('students');
 
   const sortedHalachot = React.useMemo(
@@ -708,7 +709,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   React.useEffect(() => {
-    if (activeAdminTab === 'students') {
+    if (activeAdminTab === 'students' || activeAdminTab === 'results') {
       onRefreshData();
     }
   }, [activeAdminTab]);
@@ -717,6 +718,268 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [studentFilterClass, setStudentFilterClass] = useState<string>('ALL');
   const [studentSortOrder, setStudentSortOrder] = useState<'class' | 'name' | 'points'>('class');
+
+  // Quiz Results / Status Tab State
+  const [resultSelectedDate, setResultSelectedDate] = useState<string>(getTodayInJerusalem());
+  const [resultClassFilter, setResultClassFilter] = useState<string>('ALL');
+  const [resultStatusFilter, setResultStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'NOT_SUBMITTED'>('ALL');
+  const [resultSearchTerm, setResultSearchTerm] = useState<string>('');
+  const [resultSortBy, setResultSortBy] = useState<'score' | 'time' | 'name' | 'class'>('score');
+  const [inspectingSubmission, setInspectingSubmission] = useState<{
+    student: Student;
+    submission: QuizSubmission;
+    halacha?: DailyHalacha;
+  } | null>(null);
+  const [inspectingStudentHistory, setInspectingStudentHistory] = useState<Student | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  const relevantStudents = React.useMemo(() => {
+    const approved = students.filter((s) => s.status === 'approved' && !s.managerParticipation);
+    return approved.length > 0 ? approved : students.filter((s) => !s.managerParticipation);
+  }, [students]);
+
+  const currentResultHalacha = React.useMemo(() => {
+    return halachot.find((h) => h.date === resultSelectedDate);
+  }, [halachot, resultSelectedDate]);
+
+  const resultHebrewDateLabel = React.useMemo(() => {
+    if (currentResultHalacha?.hebrewDate) return currentResultHalacha.hebrewDate;
+    try {
+      const [y, m, d] = resultSelectedDate.split('-').map(Number);
+      const hd = new Hebcal.HDate(new Date(y, m - 1, d, 12));
+      return stripHebrewVowels(hd.renderGematriya(true));
+    } catch {
+      return resultSelectedDate;
+    }
+  }, [currentResultHalacha, resultSelectedDate]);
+
+  const dateSubmissionsData = React.useMemo(() => {
+    const submitted: { student: Student; submission: QuizSubmission }[] = [];
+    const notSubmitted: Student[] = [];
+
+    relevantStudents.forEach((student) => {
+      const sub = student.submissions?.[resultSelectedDate];
+      const hasCompleted = Boolean(sub || student.completedDates?.includes(resultSelectedDate));
+      if (hasCompleted) {
+        submitted.push({
+          student,
+          submission: sub || {
+            date: resultSelectedDate,
+            score: 4,
+            earnedPoints: 20,
+            submittedAt: '—',
+            answers: {},
+          },
+        });
+      } else {
+        notSubmitted.push(student);
+      }
+    });
+
+    const totalStudents = relevantStudents.length;
+    const submittedCount = submitted.length;
+    const participationPct = totalStudents > 0 ? Math.round((submittedCount / totalStudents) * 100) : 0;
+
+    const totalScore = submitted.reduce((acc, curr) => acc + (curr.submission.score ?? 0), 0);
+    const avgScore = submittedCount > 0 ? (totalScore / submittedCount).toFixed(1) : '—';
+
+    const totalEarnedPoints = submitted.reduce((acc, curr) => acc + (curr.submission.earnedPoints ?? 0), 0);
+    const avgPoints = submittedCount > 0 ? Math.round(totalEarnedPoints / submittedCount) : 0;
+
+    const perfectCount = submitted.filter((curr) => curr.submission.score === 4).length;
+
+    // Per-class breakdown
+    const classStatsMap: Record<
+      string,
+      {
+        className: string;
+        grade: GradeType;
+        total: number;
+        submitted: number;
+        perfect: number;
+        totalScore: number;
+        participationPct: number;
+        avgScore: string;
+      }
+    > = {};
+
+    classesList.forEach((cls) => {
+      classStatsMap[cls] = {
+        className: cls,
+        grade: inferGradeFromClass(cls),
+        total: 0,
+        submitted: 0,
+        perfect: 0,
+        totalScore: 0,
+        participationPct: 0,
+        avgScore: '—',
+      };
+    });
+
+    relevantStudents.forEach((s) => {
+      const cls = s.className || 'אחר';
+      if (!classStatsMap[cls]) {
+        classStatsMap[cls] = {
+          className: cls,
+          grade: s.grade || inferGradeFromClass(cls),
+          total: 0,
+          submitted: 0,
+          perfect: 0,
+          totalScore: 0,
+          participationPct: 0,
+          avgScore: '—',
+        };
+      }
+      classStatsMap[cls].total += 1;
+      const sub = s.submissions?.[resultSelectedDate];
+      if (sub || s.completedDates?.includes(resultSelectedDate)) {
+        classStatsMap[cls].submitted += 1;
+        const score = sub?.score ?? 4;
+        classStatsMap[cls].totalScore += score;
+        if (score === 4) {
+          classStatsMap[cls].perfect += 1;
+        }
+      }
+    });
+
+    Object.values(classStatsMap).forEach((st) => {
+      st.participationPct = st.total > 0 ? Math.round((st.submitted / st.total) * 100) : 0;
+      st.avgScore = st.submitted > 0 ? (st.totalScore / st.submitted).toFixed(1) : '—';
+    });
+
+    const classStatsList = Object.values(classStatsMap).filter((st) => st.total > 0);
+    classStatsList.sort((a, b) => b.participationPct - a.participationPct || b.submitted - a.submitted);
+
+    // Question analytics
+    const questionStats: {
+      question: Question;
+      correctCount: number;
+      pct: number;
+    }[] = [];
+
+    if (currentResultHalacha?.questions && Array.isArray(currentResultHalacha.questions)) {
+      currentResultHalacha.questions.forEach((q, idx) => {
+        let correctCount = 0;
+        submitted.forEach(({ submission }) => {
+          const ans = submission.answers?.[q.id] ?? submission.answers?.[idx.toString()] ?? submission.answers?.[String(idx)];
+          if (ans !== undefined && Number(ans) === q.correctOptionIndex) {
+            correctCount += 1;
+          }
+        });
+        const pct = submittedCount > 0 ? Math.round((correctCount / submittedCount) * 100) : 0;
+        questionStats.push({ question: q, correctCount, pct });
+      });
+    }
+
+    return {
+      totalStudents,
+      submittedCount,
+      notSubmittedCount: notSubmitted.length,
+      participationPct,
+      avgScore,
+      avgPoints,
+      perfectCount,
+      submitted,
+      notSubmitted,
+      classStatsList,
+      questionStats,
+    };
+  }, [relevantStudents, resultSelectedDate, classesList, currentResultHalacha]);
+
+  const filteredResultRoster = React.useMemo(() => {
+    let list: Array<{
+      student: Student;
+      hasSubmitted: boolean;
+      submission?: QuizSubmission;
+    }> = [];
+
+    if (resultStatusFilter === 'ALL' || resultStatusFilter === 'SUBMITTED') {
+      dateSubmissionsData.submitted.forEach(({ student, submission }) => {
+        list.push({ student, hasSubmitted: true, submission });
+      });
+    }
+
+    if (resultStatusFilter === 'ALL' || resultStatusFilter === 'NOT_SUBMITTED') {
+      dateSubmissionsData.notSubmitted.forEach((student) => {
+        list.push({ student, hasSubmitted: false });
+      });
+    }
+
+    if (resultClassFilter !== 'ALL') {
+      list = list.filter((item) => item.student.className === resultClassFilter);
+    }
+
+    if (resultSearchTerm.trim()) {
+      const term = resultSearchTerm.trim().toLowerCase();
+      list = list.filter(
+        (item) =>
+          item.student.fullName.toLowerCase().includes(term) ||
+          (item.student.email && item.student.email.toLowerCase().includes(term)) ||
+          item.student.username.toLowerCase().includes(term)
+      );
+    }
+
+    list.sort((a, b) => {
+      if (resultSortBy === 'score') {
+        const scoreA = a.hasSubmitted ? (a.submission?.score ?? 0) : -1;
+        const scoreB = b.hasSubmitted ? (b.submission?.score ?? 0) : -1;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return a.student.fullName.localeCompare(b.student.fullName, 'he');
+      }
+      if (resultSortBy === 'time') {
+        const timeA = a.submission?.submittedAt || '';
+        const timeB = b.submission?.submittedAt || '';
+        if (timeB !== timeA) return timeB.localeCompare(timeA);
+        return a.student.fullName.localeCompare(b.student.fullName, 'he');
+      }
+      if (resultSortBy === 'class') {
+        const classComp = (a.student.className || '').localeCompare(b.student.className || '', 'he');
+        if (classComp !== 0) return classComp;
+        return a.student.fullName.localeCompare(b.student.fullName, 'he');
+      }
+      return a.student.fullName.localeCompare(b.student.fullName, 'he');
+    });
+
+    return list;
+  }, [dateSubmissionsData, resultStatusFilter, resultClassFilter, resultSearchTerm, resultSortBy]);
+
+  const handleShiftResultDate = (days: number) => {
+    try {
+      const [year, month, day] = resultSelectedDate.split('-').map(Number);
+      const cur = new Date(Date.UTC(year, month - 1, day));
+      cur.setUTCDate(cur.getUTCDate() + days);
+      setResultSelectedDate(cur.toISOString().slice(0, 10));
+    } catch {
+      // fallback
+    }
+  };
+
+  const handleCopyUnsubmittedNames = () => {
+    const targetList = dateSubmissionsData.notSubmitted.filter((s) =>
+      resultClassFilter === 'ALL' ? true : s.className === resultClassFilter
+    );
+
+    if (targetList.length === 0) {
+      setCopyFeedback('כל התלמידות כבר הגישו את החידון! 🎉');
+      setTimeout(() => setCopyFeedback(null), 3000);
+      return;
+    }
+
+    const classLabel = resultClassFilter === 'ALL' ? 'כל הכיתות' : `כיתה ${resultClassFilter}`;
+    const lines = [
+      `📋 תלמידות שטרם הגישו את החידון היומי (${resultSelectedDate}) - ${classLabel}:`,
+      ...targetList.map((s, idx) => `${idx + 1}. ${s.fullName} (${s.className})`),
+      `\nסה״כ: ${targetList.length} תלמידות. נא להיכנס לאולפה-קוויז ולהגיש! 💫`,
+    ];
+
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopyFeedback(`הועתקו ${targetList.length} שמות ללוח!`);
+      setTimeout(() => setCopyFeedback(null), 3000);
+    }).catch(() => {
+      setCopyFeedback('לא ניתן להעתיק ללוח בדפדפן זה');
+      setTimeout(() => setCopyFeedback(null), 3000);
+    });
+  };
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (confirm(`האם למחוק את התלמידה "${studentName}"?`)) {
@@ -772,6 +1035,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const res = await resetStudentQuizSubmissionApi(studentId, date);
       if (editingStudent && editingStudent.id === studentId) {
         setEditingStudent(res.student);
+      }
+      if (inspectingStudentHistory && inspectingStudentHistory.id === studentId) {
+        setInspectingStudentHistory(res.student);
+      }
+      if (inspectingSubmission && inspectingSubmission.student.id === studentId) {
+        setInspectingSubmission(null);
       }
       onRefreshData();
     } catch (err: any) {
@@ -1519,6 +1788,23 @@ ${targetHalacha.content}
               {pendingStudents.length > 0 && (
                 <span className="bg-rose-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full animate-pulse">
                   {pendingStudents.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveAdminTab('results')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'results'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              <span>תוצאות וסטטוס חידון</span>
+              {dateSubmissionsData.submittedCount > 0 && (
+                <span className="bg-emerald-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full">
+                  {dateSubmissionsData.submittedCount}
                 </span>
               )}
             </button>
@@ -2790,6 +3076,13 @@ ${targetHalacha.content}
                             </button>
                           )}
                           <button
+                            onClick={() => setInspectingStudentHistory(s)}
+                            className="p-1.5 rounded-lg text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer"
+                            title="צפייה בהגשות וחידונים של התלמידה"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => handleOpenEditStudent(s)}
                             className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition-colors"
                             title="עריכת פרטי תלמידה"
@@ -3055,6 +3348,592 @@ ${targetHalacha.content}
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ====================================================
+          TAB 2.5: RESULTS & QUIZ STATUS (תוצאות וסטטוס חידון)
+      ==================================================== */}
+      {activeAdminTab === 'results' && (
+        <div className="space-y-6">
+          {/* Top Control Bar & Date Navigator */}
+          <div className="bg-white rounded-3xl p-5 md:p-6 border border-amber-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-amber-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-6 h-6 text-amber-600" />
+                  <h3 className="text-xl md:text-2xl font-black text-amber-950 font-['Heebo']">
+                    תוצאות וסטטוס חידון יומי
+                  </h3>
+                </div>
+                <p className="text-xs text-amber-800/80 mt-1">
+                  מעקב חי אחר הגשות, השתתפות כיתתית, ניתוח שאלות ואיפוס חידונים לתלמידות
+                </p>
+              </div>
+
+              {/* Date picker + navigator */}
+              <div className="flex items-center gap-2 flex-wrap bg-amber-50/80 p-2 rounded-2xl border border-amber-200">
+                <button
+                  type="button"
+                  onClick={() => handleShiftResultDate(-1)}
+                  title="יום קודם"
+                  className="p-2 rounded-xl text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={resultSelectedDate}
+                    onChange={(e) => setResultSelectedDate(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border border-amber-300 bg-white text-xs font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setResultSelectedDate(getTodayInJerusalem())}
+                    className="px-3 py-1.5 rounded-xl text-xs font-black bg-amber-600 text-white hover:bg-amber-700 transition-colors shadow-xs cursor-pointer"
+                  >
+                    היום
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleShiftResultDate(1)}
+                  title="יום הבא"
+                  className="p-2 rounded-xl text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onRefreshData}
+                  title="רענן נתונים"
+                  className="p-2 rounded-xl text-amber-800 hover:bg-amber-200/60 transition-colors cursor-pointer mr-1"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Date summary badge & Halacha info */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-l from-amber-50 via-white to-amber-50/50 p-3.5 rounded-2xl border border-amber-200/70 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-amber-950 text-sm">
+                  תאריך עברי: {resultHebrewDateLabel}
+                </span>
+                <span className="text-amber-300">•</span>
+                <span className="text-slate-600">
+                  {currentResultHalacha ? (
+                    <span className="font-bold text-slate-800">
+                      הלכה יומית: {currentResultHalacha.title}
+                    </span>
+                  ) : (
+                    <span className="text-rose-600 font-semibold">לא נמצאה הלכה משובצת לתאריך זה</span>
+                  )}
+                </span>
+              </div>
+              {dailyQuizDedication && (
+                <div className="flex items-center gap-1.5 text-rose-800 bg-rose-50 px-3 py-1 rounded-full border border-rose-200 font-bold text-[11px]">
+                  <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                  <span>הקדשה: {dailyQuizDedication}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Participation */}
+            <div className="bg-white rounded-3xl p-5 border border-amber-200/80 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
+                  <span>השתתפות והגשות</span>
+                  <Users className="w-4 h-4 text-amber-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black text-amber-950 font-['Heebo']">
+                    {dateSubmissionsData.submittedCount}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    מתוך {dateSubmissionsData.totalStudents} תלמידות
+                  </span>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-amber-100">
+                <div className="flex justify-between items-center text-xs font-extrabold text-amber-950 mb-1">
+                  <span>אחוז השתתפות</span>
+                  <span>{dateSubmissionsData.participationPct}%</span>
+                </div>
+                <div className="w-full bg-amber-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-amber-600 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, dateSubmissionsData.participationPct)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Average Score */}
+            <div className="bg-white rounded-3xl p-5 border border-amber-200/80 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
+                  <span>ציון ממוצע</span>
+                  <Award className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black text-blue-950 font-['Heebo']">
+                    {dateSubmissionsData.avgScore}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">מתוך 4.0</span>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-blue-50 text-xs font-bold text-blue-800 flex items-center justify-between">
+                <span>ממוצע נקודות שנצברו:</span>
+                <span className="font-extrabold text-blue-950 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
+                  {dateSubmissionsData.avgPoints} נק׳
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: Perfect Scores */}
+            <div className="bg-white rounded-3xl p-5 border border-amber-200/80 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
+                  <span>ציון מושלם (4/4)</span>
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black text-emerald-950 font-['Heebo']">
+                    {dateSubmissionsData.perfectCount}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">תלמידות</span>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-emerald-50 text-xs font-bold text-emerald-800 flex items-center justify-between">
+                <span>אחוז מבין המגישות:</span>
+                <span className="font-extrabold text-emerald-950 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                  {dateSubmissionsData.submittedCount > 0
+                    ? Math.round((dateSubmissionsData.perfectCount / dateSubmissionsData.submittedCount) * 100)
+                    : 0}
+                  %
+                </span>
+              </div>
+            </div>
+
+            {/* Card 4: Not Submitted & WhatsApp Reminder */}
+            <div className="bg-white rounded-3xl p-5 border border-rose-200/80 shadow-xs flex flex-col justify-between bg-gradient-to-br from-white to-rose-50/30">
+              <div>
+                <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
+                  <span>טרם הגישו</span>
+                  <Clock className="w-4 h-4 text-rose-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black text-rose-950 font-['Heebo']">
+                    {dateSubmissionsData.notSubmittedCount}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">תלמידות</span>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-rose-100 flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleCopyUnsubmittedNames}
+                  className="w-full py-1.5 px-3 rounded-xl text-xs font-extrabold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  title="העתקת שמות התלמידות שטרם הגישו לשליחה בוואטסאפ"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>העתקת שמות לוואטסאפ</span>
+                </button>
+                {copyFeedback && (
+                  <p className="text-[11px] text-center font-bold text-emerald-700 animate-fade-in">
+                    {copyFeedback}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Class League / Breakdown Grid */}
+          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-amber-100 pb-3 flex-wrap gap-2">
+              <div>
+                <h4 className="text-lg font-black text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-amber-600" />
+                  <span>סטטוס לפי כיתות (ליגת כיתות)</span>
+                </h4>
+                <p className="text-xs text-amber-800/80">
+                  לחצי על כיתה כדי לסנן את טבלת ההגשות לתלמידות אותה כיתה בלבד
+                </p>
+              </div>
+              {resultClassFilter !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => setResultClassFilter('ALL')}
+                  className="text-xs font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200 transition-colors cursor-pointer"
+                >
+                  הצג את כל הכיתות (איפוס סינון)
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {dateSubmissionsData.classStatsList.map((cs) => {
+                const isSelected = resultClassFilter === cs.className;
+                return (
+                  <button
+                    type="button"
+                    key={cs.className}
+                    onClick={() => setResultClassFilter(isSelected ? 'ALL' : cs.className)}
+                    className={`p-3 rounded-2xl border text-right transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-amber-100 border-amber-500 shadow-sm ring-2 ring-amber-400'
+                        : 'bg-amber-50/40 border-amber-200 hover:bg-amber-50 hover:border-amber-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-black text-sm text-amber-950">
+                        כיתה {cs.className}
+                      </span>
+                      <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-md ${
+                        cs.participationPct >= 70
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : cs.participationPct >= 40
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}>
+                        {cs.participationPct}%
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-200/70 rounded-full h-1.5 mb-2 overflow-hidden">
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          cs.participationPct >= 70 ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${Math.min(100, cs.participationPct)}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-bold">
+                      <span>{cs.submitted}/{cs.total} הגישו</span>
+                      <span>ממוצע: {cs.avgScore}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Question Analytics Breakdown */}
+          {dateSubmissionsData.questionStats.length > 0 && (
+            <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-4">
+              <div className="border-b border-amber-100 pb-3">
+                <h4 className="text-lg font-black text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <ClipboardCheck className="w-5 h-5 text-amber-600" />
+                  <span>ניתוח שאלות החידון היומי</span>
+                </h4>
+                <p className="text-xs text-amber-800/80">
+                  אחוזי הצלחה לפי שאלה מתוך {dateSubmissionsData.submittedCount} תלמידות שהגישו
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {dateSubmissionsData.questionStats.map((qs, idx) => (
+                  <div
+                    key={qs.question.id || idx}
+                    className="p-4 rounded-2xl border border-amber-200/80 bg-amber-50/30 flex flex-col justify-between space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-xs text-amber-950 bg-amber-100 px-2 py-0.5 rounded-md">
+                        שאלה {idx + 1}
+                      </span>
+                      <span className={`text-xs font-black px-2 py-0.5 rounded-md ${
+                        qs.pct >= 75
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : qs.pct >= 50
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}>
+                        {qs.pct}% הצלחה
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 line-clamp-2" title={qs.question.text}>
+                      {qs.question.text}
+                    </p>
+                    <div className="pt-2 border-t border-amber-100/80 flex items-center justify-between text-[11px] text-slate-500 font-bold">
+                      <span>ענו נכון:</span>
+                      <span className="font-extrabold text-slate-800">
+                        {qs.correctCount} מתוך {dateSubmissionsData.submittedCount}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Student Submissions Table */}
+          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-amber-100 pb-4">
+              <div>
+                <h4 className="text-lg font-black text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-amber-600" />
+                  <span>פירוט הגשות וסטטוס תלמידות</span>
+                </h4>
+                <p className="text-xs text-amber-800/80">
+                  מוצגות {filteredResultRoster.length} תלמידות בהתאם לסינונים שנבחרו
+                </p>
+              </div>
+
+              {/* Status filter pills */}
+              <div className="flex items-center gap-1.5 bg-amber-50 p-1.5 rounded-2xl border border-amber-200 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setResultStatusFilter('ALL')}
+                  className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    resultStatusFilter === 'ALL'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-amber-900 hover:bg-amber-200/50'
+                  }`}
+                >
+                  הכל ({dateSubmissionsData.totalStudents})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResultStatusFilter('SUBMITTED')}
+                  className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    resultStatusFilter === 'SUBMITTED'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-emerald-900 hover:bg-emerald-100/60'
+                  }`}
+                >
+                  הגישו ({dateSubmissionsData.submittedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResultStatusFilter('NOT_SUBMITTED')}
+                  className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    resultStatusFilter === 'NOT_SUBMITTED'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-rose-900 hover:bg-rose-100/60'
+                  }`}
+                >
+                  טרם הגישו ({dateSubmissionsData.notSubmittedCount})
+                </button>
+              </div>
+            </div>
+
+            {/* Filter controls row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="חיפוש לפי שם, אימייל..."
+                  value={resultSearchTerm}
+                  onChange={(e) => setResultSearchTerm(e.target.value)}
+                  className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Class filter */}
+              <div>
+                <select
+                  value={resultClassFilter}
+                  onChange={(e) => setResultClassFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                >
+                  <option value="ALL">כל הכיתות</option>
+                  {classesList.map((cls) => (
+                    <option key={cls} value={cls}>
+                      כיתה {cls}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sort by */}
+              <div>
+                <select
+                  value={resultSortBy}
+                  onChange={(e) => setResultSortBy(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                >
+                  <option value="score">מיון לפי: ציון (גבוה לנמוך)</option>
+                  <option value="time">מיון לפי: שעת הגשה</option>
+                  <option value="name">מיון לפי: שם התלמידה (א-ת)</option>
+                  <option value="class">מיון לפי: כיתה</option>
+                </select>
+              </div>
+
+              {/* WhatsApp broadcast copy */}
+              <div>
+                <button
+                  type="button"
+                  onClick={handleCopyUnsubmittedNames}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-black text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>העתקת שמות לוואטסאפ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-2xl border border-amber-200">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-amber-100/70 text-amber-950 font-black">
+                  <tr>
+                    <th className="p-3">שם התלמידה</th>
+                    <th className="p-3 text-center">כיתה</th>
+                    <th className="p-3 text-center">סטטוס</th>
+                    <th className="p-3 text-center">ציון</th>
+                    <th className="p-3 text-center">נקודות שנצברו</th>
+                    <th className="p-3 text-center">שעת הגשה</th>
+                    <th className="p-3 text-center">פעולות</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {filteredResultRoster.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-500 font-bold">
+                        לא נמצאו תלמידות התואמות את הסינון שנבחר.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredResultRoster.map(({ student, hasSubmitted, submission }) => {
+                      const score = submission?.score;
+                      const isPerfect = score === 4;
+                      return (
+                        <tr
+                          key={student.id}
+                          className={`hover:bg-amber-50/50 transition-colors ${
+                            !hasSubmitted ? 'bg-slate-50/40 text-slate-600' : ''
+                          }`}
+                        >
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center font-black text-xs shrink-0">
+                                {student.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="font-extrabold text-slate-900">{student.fullName}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">@{student.username}</div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-3 text-center">
+                            <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-100 text-amber-950 font-black text-[11px]">
+                              {student.className}
+                            </span>
+                          </td>
+
+                          <td className="p-3 text-center">
+                            {hasSubmitted ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-850 font-black text-[11px]">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>הגישה</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px]">
+                                <Clock className="w-3 h-3 text-rose-500" />
+                                <span>טרם הגישה</span>
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-center">
+                            {hasSubmitted ? (
+                              <span
+                                className={`inline-block font-black px-2.5 py-0.5 rounded-lg text-xs ${
+                                  isPerfect
+                                    ? 'bg-amber-100 text-amber-950 border border-amber-300 shadow-xs'
+                                    : score && score >= 3
+                                    ? 'bg-blue-100 text-blue-900'
+                                    : 'bg-slate-100 text-slate-800'
+                                }`}
+                              >
+                                {score !== undefined ? `${score} / 4` : '4 / 4'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-bold">—</span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-center">
+                            {hasSubmitted ? (
+                              <span className="font-black text-amber-900 text-xs">
+                                +{submission?.earnedPoints ?? 20} נק׳
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-bold">—</span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-center text-slate-600 font-mono text-[11px]">
+                            {hasSubmitted ? submission?.submittedAt || '—' : '—'}
+                          </td>
+
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {hasSubmitted && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setInspectingSubmission({
+                                        student,
+                                        submission: submission || {
+                                          date: resultSelectedDate,
+                                          score: 4,
+                                          earnedPoints: 20,
+                                          submittedAt: '—',
+                                          answers: {},
+                                        },
+                                        halacha: currentResultHalacha,
+                                      })
+                                    }
+                                    className="p-1.5 rounded-lg text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer"
+                                    title="צפייה בפירוט התשובות"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isResettingQuiz}
+                                    onClick={() => handleResetQuiz(student.id, resultSelectedDate)}
+                                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-40"
+                                    title="איפוס הגשת החידון לתלמידה זו"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setInspectingStudentHistory(student)}
+                                className="p-1.5 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
+                                title="היסטוריית כל החידונים של התלמידה"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -3761,6 +4640,359 @@ ${targetHalacha.content}
                   <span>מחיקת הערה מותאמת</span>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: INSPECT SUBMISSION DETAILS
+      ==================================================== */}
+      {inspectingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-6 shadow-2xl border border-amber-200 max-h-[90vh] overflow-y-auto"
+            dir="rtl"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-amber-100 pb-4">
+              <div>
+                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <ClipboardCheck className="w-5 h-5 text-amber-600" />
+                  <span>פירוט הגשת חידון</span>
+                </h3>
+                <p className="text-xs text-amber-800">
+                  {inspectingSubmission.student.fullName} (כיתה {inspectingSubmission.student.className}) • תאריך {inspectingSubmission.submission.date || resultSelectedDate}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingSubmission(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Score & Timing Summary Bar */}
+            <div className="grid grid-cols-3 gap-3 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-center">
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">ציון</span>
+                <span className="text-lg font-black text-amber-950">
+                  {inspectingSubmission.submission.score ?? 4} / 4
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">נקודות שהתווספו</span>
+                <span className="text-lg font-black text-amber-950">
+                  +{inspectingSubmission.submission.earnedPoints ?? 20}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">שעת הגשה</span>
+                <span className="text-lg font-black text-amber-950 font-mono">
+                  {inspectingSubmission.submission.submittedAt || '—'}
+                </span>
+              </div>
+            </div>
+
+            {/* Questions breakdown */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-extrabold text-slate-900">תשובות התלמידה לשאלות:</h4>
+              {inspectingSubmission.halacha?.questions && inspectingSubmission.halacha.questions.length > 0 ? (
+                inspectingSubmission.halacha.questions.map((q, idx) => {
+                  const studentAnswer =
+                    inspectingSubmission.submission.answers?.[q.id] ??
+                    inspectingSubmission.submission.answers?.[idx.toString()] ??
+                    inspectingSubmission.submission.answers?.[String(idx)];
+                  const isAnswered = studentAnswer !== undefined;
+                  const isCorrect = isAnswered && Number(studentAnswer) === q.correctOptionIndex;
+
+                  return (
+                    <div
+                      key={q.id || idx}
+                      className={`p-4 rounded-2xl border space-y-3 ${
+                        isCorrect
+                          ? 'border-emerald-200 bg-emerald-50/30'
+                          : isAnswered
+                          ? 'border-rose-200 bg-rose-50/30'
+                          : 'border-slate-200 bg-slate-50/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
+                              isCorrect
+                                ? 'bg-emerald-600 text-white'
+                                : isAnswered
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-slate-400 text-white'
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <span className="text-xs font-extrabold text-slate-900">{q.text}</span>
+                        </div>
+                        <span
+                          className={`text-[11px] font-black px-2 py-0.5 rounded-md shrink-0 ${
+                            isCorrect
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : isAnswered
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {isCorrect ? 'נכון (+5)' : isAnswered ? 'שגוי' : 'לא נענה'}
+                        </span>
+                      </div>
+
+                      {/* Options */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        {q.options.map((opt, optIdx) => {
+                          const isStudentPick = isAnswered && Number(studentAnswer) === optIdx;
+                          const isCorrectPick = q.correctOptionIndex === optIdx;
+
+                          let optionClass = 'border-slate-200 bg-white text-slate-700';
+                          if (isCorrectPick) {
+                            optionClass =
+                              'border-emerald-500 bg-emerald-100/70 text-emerald-950 font-bold ring-1 ring-emerald-400';
+                          } else if (isStudentPick && !isCorrect) {
+                            optionClass =
+                              'border-rose-400 bg-rose-100/70 text-rose-950 font-bold line-through';
+                          }
+
+                          return (
+                            <div
+                              key={optIdx}
+                              className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${optionClass}`}
+                            >
+                              <span>{opt}</span>
+                              {isStudentPick && isCorrect && (
+                                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                              )}
+                              {isStudentPick && !isCorrect && (
+                                <X className="w-4 h-4 text-rose-600 shrink-0" />
+                              )}
+                              {!isStudentPick && isCorrectPick && (
+                                <span className="text-[10px] font-black text-emerald-700 bg-emerald-200/60 px-1.5 py-0.2 rounded">
+                                  תשובה נכונה
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {q.explanation && (
+                        <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-[11px] text-amber-900 font-bold">
+                          💡 <span className="underline">הסבר:</span> {q.explanation}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 text-xs text-slate-600">
+                  לא נטענו שאלות מפורטות עבור תאריך זה.
+                </div>
+              )}
+            </div>
+
+            {/* Actions footer */}
+            <div className="flex items-center justify-between gap-2 pt-4 border-t border-amber-100 flex-wrap">
+              <button
+                type="button"
+                disabled={isResettingQuiz}
+                onClick={() =>
+                  handleResetQuiz(
+                    inspectingSubmission.student.id,
+                    inspectingSubmission.submission.date || resultSelectedDate
+                  )
+                }
+                className="px-4 py-2 rounded-xl text-xs font-black text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>{isResettingQuiz ? 'מאפס...' : 'איפוס הגשה זו (מחיקה וניכוי נקודות)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInspectingSubmission(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                סגור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: STUDENT COMPLETE QUIZ HISTORY
+      ==================================================== */}
+      {inspectingStudentHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-6 shadow-2xl border border-amber-200 max-h-[90vh] overflow-y-auto"
+            dir="rtl"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-amber-100 pb-4">
+              <div>
+                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-amber-600" />
+                  <span>היסטוריית חידונים - {inspectingStudentHistory.fullName}</span>
+                </h3>
+                <p className="text-xs text-amber-800">
+                  כיתה: {inspectingStudentHistory.className} • שם משתמש: @{inspectingStudentHistory.username}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingStudentHistory(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* KPI Summary for student */}
+            <div className="grid grid-cols-3 gap-3 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-center">
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">סה״כ נקודות צבורות</span>
+                <span className="text-lg font-black text-amber-950">
+                  {inspectingStudentHistory.points} נק׳
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">חידונים שבוצעו</span>
+                <span className="text-lg font-black text-amber-950">
+                  {Object.keys(inspectingStudentHistory.submissions || {}).length ||
+                    inspectingStudentHistory.completedDates?.length ||
+                    0}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] font-bold text-slate-500">סטטוס משתמש</span>
+                <span className="text-xs font-black inline-block mt-1 px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                  {inspectingStudentHistory.status === 'approved' ? 'מאושרת' : inspectingStudentHistory.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Submissions List */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-extrabold text-slate-900">כל ההגשות של התלמידה:</h4>
+              {(() => {
+                const datesSet = new Set<string>([
+                  ...Object.keys(inspectingStudentHistory.submissions || {}),
+                  ...(inspectingStudentHistory.completedDates || []),
+                ]);
+                const sortedDates = Array.from(datesSet).sort((a, b) => b.localeCompare(a));
+
+                if (sortedDates.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-slate-400 font-bold border border-dashed border-amber-200 rounded-2xl">
+                      התלמידה עדיין לא הגישה חידונים באולפה-קוויז.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {sortedDates.map((dateStr) => {
+                      const sub = inspectingStudentHistory.submissions?.[dateStr];
+                      const matchedHalacha = halachot.find((h) => h.date === dateStr);
+                      let hebrewLabel = matchedHalacha?.hebrewDate;
+                      if (!hebrewLabel) {
+                        try {
+                          const [y, m, d] = dateStr.split('-').map(Number);
+                          const hd = new Hebcal.HDate(new Date(y, m - 1, d, 12));
+                          hebrewLabel = stripHebrewVowels(hd.renderGematriya(true));
+                        } catch {
+                          hebrewLabel = dateStr;
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={dateStr}
+                          className="p-3.5 rounded-2xl border border-amber-200 bg-amber-50/40 flex items-center justify-between gap-3 flex-wrap"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-amber-950 text-xs">
+                                {hebrewLabel} ({dateStr})
+                              </span>
+                              {matchedHalacha && (
+                                <span className="text-[11px] text-slate-500 font-bold">
+                                  - {matchedHalacha.title}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-bold flex items-center gap-2">
+                              <span>שעת הגשה: {sub?.submittedAt || '—'}</span>
+                              <span>•</span>
+                              <span className="text-amber-900 font-extrabold">
+                                +{sub?.earnedPoints ?? 20} נקודות
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 font-black text-xs border border-amber-200">
+                              ציון: {sub?.score ?? 4} / 4
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setInspectingSubmission({
+                                  student: inspectingStudentHistory,
+                                  submission: sub || {
+                                    date: dateStr,
+                                    score: 4,
+                                    earnedPoints: 20,
+                                    submittedAt: '—',
+                                    answers: {},
+                                  },
+                                  halacha: matchedHalacha,
+                                })
+                              }
+                              className="p-1.5 rounded-lg text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer"
+                              title="צפייה בפירוט התשובות"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isResettingQuiz}
+                              onClick={() => handleResetQuiz(inspectingStudentHistory.id, dateStr)}
+                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-40"
+                              title="איפוס חידון זה"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end pt-3 border-t border-amber-100">
+              <button
+                type="button"
+                onClick={() => setInspectingStudentHistory(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                סגור
+              </button>
             </div>
           </div>
         </div>
