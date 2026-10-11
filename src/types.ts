@@ -49,6 +49,15 @@ export interface QuizAvailability {
   reason: 'friday' | 'erev-yom-tov';
 }
 
+export interface CustomCalendarAnnotation {
+  text: string;
+  mode?: 'append' | 'replace';
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type CalendarAnnotationsMap = Record<string, CustomCalendarAnnotation>;
+
 export interface QuizSubmission {
   date: string;
   halachaId?: string;
