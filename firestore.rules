@@ -17,7 +17,8 @@ service cloud.firestore {
     //   createdAt, active. Public registration validation, manager-only writes.
     // - quizAvailability/{date}: date, availableOn, reason. Non-sensitive
     //   advance-quiz dates generated with Hebcal; manager-only writes.
-    // - settings/{id}: shared configuration; public reads and manager writes.
+    // - settings/{id}: shared configuration (classes, prizeMilestones,
+    //   dailyQuizDedication, calendarAnnotations); public reads and manager writes.
     // Every path not explicitly matched below is denied.
     
     // Manager document IDs are normalized from lowercase email addresses.

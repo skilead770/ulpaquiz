@@ -39,6 +39,8 @@ import {
   DEFAULT_CLASSES,
   inferGradeFromClass,
   getStudentRegistrationDocumentId,
+  CustomCalendarAnnotation,
+  CalendarAnnotationsMap,
 } from '../types';
 import {
   INITIAL_STUDENTS,
@@ -699,6 +701,99 @@ export async function saveDailyQuizDedicationApi(name: string): Promise<string> 
     updatedAt: new Date().toISOString(),
   });
   return normalizedName;
+}
+
+export async function getCalendarAnnotationsApi(): Promise<CalendarAnnotationsMap> {
+  const snap = await getDoc(doc(db, 'settings', 'calendarAnnotations'));
+  if (!snap.exists()) return {};
+  const data = snap.data();
+  if (!data || typeof data.annotations !== 'object' || data.annotations === null) {
+    return {};
+  }
+  return data.annotations as CalendarAnnotationsMap;
+}
+
+export function subscribeToCalendarAnnotations(
+  onChange: (annotations: CalendarAnnotationsMap) => void,
+  onError?: (error: Error) => void
+): () => void {
+  return onSnapshot(
+    doc(db, 'settings', 'calendarAnnotations'),
+    (snap) => {
+      if (!snap.exists()) {
+        onChange({});
+        return;
+      }
+      const data = snap.data();
+      if (!data || typeof data.annotations !== 'object' || data.annotations === null) {
+        onChange({});
+        return;
+      }
+      onChange(data.annotations as CalendarAnnotationsMap);
+    },
+    (error) => {
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveCalendarAnnotationApi(
+  dateKey: string,
+  annotation: CustomCalendarAnnotation | null
+): Promise<void> {
+  const trimmedKey = dateKey.trim();
+  if (!trimmedKey) {
+    throw new Error('מזהה תאריך אינו תקין');
+  }
+
+  const ref = doc(db, 'settings', 'calendarAnnotations');
+  const snap = await getDoc(ref);
+
+  if (annotation === null) {
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        [`annotations.${trimmedKey}`]: deleteField(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
+  const cleanText = (annotation.text || '').trim();
+  if (!cleanText) {
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        [`annotations.${trimmedKey}`]: deleteField(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
+  if (cleanText.length > 200) {
+    throw new Error('הערת התאריך יכולה להכיל עד 200 תווים');
+  }
+
+  const itemToSave: CustomCalendarAnnotation = {
+    text: cleanText,
+    mode: annotation.mode === 'replace' ? 'replace' : 'append',
+    updatedAt: new Date().toISOString(),
+    ...(auth.currentUser?.email ? { updatedBy: auth.currentUser.email } : {}),
+  };
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      annotations: {
+        [trimmedKey]: itemToSave,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  } else {
+    await updateDoc(ref, {
+      [`annotations.${trimmedKey}`]: itemToSave,
+      updatedAt: new Date().toISOString(),
+    });
+  }
 }
 
 export async function fetchPrizesApi(): Promise<{
