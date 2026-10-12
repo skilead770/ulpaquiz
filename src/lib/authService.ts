@@ -117,6 +117,7 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
   picture?: string;
   student?: Student;
   manager?: Manager;
+  schoolId?: string;
   message?: string;
   error?: string;
 }> {
@@ -171,11 +172,12 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
 
   try {
     const managersRef = collection(db, 'managers');
-    const managerQuery = query(managersRef, where('email', '==', email));
+    const managerQuery = query(managersRef, where('email', '==', normalizedEmail));
     const managerSnap = await getDocs(managerQuery);
 
     if (!managerSnap.empty) {
       const manager = managerSnap.docs[0].data() as Manager;
+      const schoolId = manager.schoolIds && manager.schoolIds.length > 0 ? manager.schoolIds[0] : undefined;
       return {
         success: true,
         role: 'admin',
@@ -183,8 +185,39 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
         name: name || manager.name || normalizedEmail.split('@')[0],
         picture,
         manager,
+        schoolId,
         message: `שלום מנהל המערכת (${manager.name || normalizedEmail})!`,
       };
+    }
+
+    // Also check if this email is an assigned admin in any school document
+    try {
+      const schoolsSnap = await getDocs(collection(db, 'schools'));
+      const matchingSchool = schoolsSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() as any }))
+        .find((s) => Array.isArray(s.adminEmails) && s.adminEmails.some((e: string) => e.trim().toLowerCase() === normalizedEmail));
+
+      if (matchingSchool) {
+        const manager: Manager = {
+          email: normalizedEmail,
+          name: name || normalizedEmail.split('@')[0],
+          role: 'admin',
+          addedAt: new Date().toISOString(),
+          schoolIds: [matchingSchool.id],
+        };
+        return {
+          success: true,
+          role: 'admin',
+          email: normalizedEmail,
+          name: name || normalizedEmail.split('@')[0],
+          picture,
+          manager,
+          schoolId: matchingSchool.id,
+          message: `שלום מנהל המערכת (${name || normalizedEmail})!`,
+        };
+      }
+    } catch (schoolLookupErr) {
+      console.warn('[authService] Could not lookup schools for manager check:', schoolLookupErr);
     }
 
     const studentsRef = collection(db, 'students');
@@ -239,6 +272,7 @@ export async function resolveFirebaseUserSession(firebaseUser: FirebaseUser | nu
         name: student.fullName || name || normalizedEmail.split('@')[0],
         picture,
         student,
+        schoolId: student.schoolId,
         message: `שלום ${student.fullName}! התחברת בהצלחה.`,
       };
     }

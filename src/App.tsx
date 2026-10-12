@@ -27,6 +27,11 @@ const AdminPanel = React.lazy(() =>
     default: module.AdminPanel,
   }))
 );
+const HeadOfficePortal = React.lazy(() =>
+  import('./components/admin/HeadOfficePortal').then((module) => ({
+    default: module.HeadOfficePortal,
+  }))
+);
 import { RegisterPage } from './components/RegisterPage';
 import { EntryScreen } from './components/EntryScreen';
 import { DEFAULT_PRIZE_MILESTONES } from './data/seedData';
@@ -57,6 +62,45 @@ export default function App() {
   const [availableQuizDates, setAvailableQuizDates] = useState<string[]>([todayDate]);
   const [selectedDate, setSelectedDate] = useState<string>(todayDate);
   const [activeTab, setActiveTab] = useState<'study' | 'leaderboard' | 'register' | 'admin'>('study');
+  const [isHeadOfficeOpen, setIsHeadOfficeOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('portal') === 'headoffice' || params.has('headoffice');
+    }
+    return false;
+  });
+
+  const handleOpenHeadOffice = () => {
+    setIsHeadOfficeOpen(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('portal', 'headoffice');
+      window.history.pushState({}, '', url.toString());
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleCloseHeadOffice = () => {
+    setIsHeadOfficeOpen(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('portal');
+      url.searchParams.delete('headoffice');
+      window.history.pushState({}, '', url.toString());
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setIsHeadOfficeOpen(params.get('portal') === 'headoffice' || params.has('headoffice'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Modals state
   const [showQuizModal, setShowQuizModal] = useState(false);
@@ -194,6 +238,9 @@ export default function App() {
 
           if (session.role === 'admin' && session.success) {
             resolvedAuthUid.current = user.uid;
+            if (session.schoolId && session.schoolId !== currentSchoolId) {
+              setSchoolId(session.schoolId);
+            }
             setCurrentStudentId('admin');
             setActiveTab('admin');
           } else if (
@@ -348,11 +395,37 @@ export default function App() {
     );
   }
 
+  if (isHeadOfficeOpen) {
+    return (
+      <React.Suspense
+        fallback={
+          <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+            <div className="text-center space-y-3 text-slate-300 font-bold">
+              <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p>טוען מטה ראשי (Head Office)...</p>
+            </div>
+          </div>
+        }
+      >
+        <HeadOfficePortal
+          onExitPortal={handleCloseHeadOffice}
+          onLaunchSchool={(schoolId) => {
+            handleCloseHeadOffice();
+            setSchoolId(schoolId);
+            setCurrentStudentId('admin');
+            setActiveTab('admin');
+          }}
+        />
+      </React.Suspense>
+    );
+  }
+
   // If no user is logged in (First time entering), display the simple Entry Screen!
   if (!currentStudentId) {
     return (
       <EntryScreen
         onLoginSuccess={handleLoginSuccess}
+        onOpenHeadOffice={handleOpenHeadOffice}
       />
     );
   }
@@ -379,6 +452,7 @@ export default function App() {
         onResetDemo={handleResetDemo}
         onLogout={handleLogout}
         dailyDedication={dailyQuizDedication}
+        onOpenHeadOffice={handleOpenHeadOffice}
       />
 
       {/* Main Content Area */}
@@ -441,6 +515,7 @@ export default function App() {
               onRefreshData={() => void loadData(selectedDate, currentSchoolId)}
               onManagerQuiz={handleManagerQuiz}
               onDailyDedicationChange={setDailyQuizDedication}
+              onOpenHeadOffice={handleOpenHeadOffice}
             />
           </React.Suspense>
         )}

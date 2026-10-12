@@ -23,6 +23,9 @@ import {
   ArrowRight,
   Globe,
   Sliders,
+  UploadCloud,
+  Image as ImageIcon,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { School, SchoolType } from '../../types/tenant';
 import { useTenant } from '../../context/SchoolContext';
@@ -64,6 +67,7 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
     saveSchool,
     deleteSchool,
     refreshSchools,
+    syncAllManagers,
   } = useTenant();
 
   // Search & Filter state
@@ -72,6 +76,10 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
 
   // Copy feedback state
   const [copiedSchoolId, setCopiedSchoolId] = useState<string | null>(null);
+
+  // Sync state
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -84,6 +92,13 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
   // Delete modal state
   const [schoolToDelete, setSchoolToDelete] = useState<School | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Logo upload state & ref
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [logoMode, setLogoMode] = useState<'upload' | 'url'>('upload');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const [logoFileSize, setLogoFileSize] = useState<string | null>(null);
 
   // Form Fields
   const [editingId, setEditingId] = useState<string>('');
@@ -103,6 +118,98 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
   const [allowRegistration, setAllowRegistration] = useState(true);
   const [requireCode, setRequireCode] = useState(false);
   const [customWelcome, setCustomWelcome] = useState('');
+
+  const handleSyncManagers = async () => {
+    try {
+      setIsSyncing(true);
+      const count = await syncAllManagers();
+      setSyncFeedback(`סונכרנו בהצלחה ${count} מנהלים ל-Firestore!`);
+      setTimeout(() => setSyncFeedback(null), 4000);
+    } catch (err) {
+      console.error('Failed to sync managers:', err);
+      alert('שגיאה בסנכרון מנהלים ל-Firestore');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const processImageFile = (file: File) => {
+    setUploadError(null);
+    if (!file.type.startsWith('image/')) {
+      setUploadError('יש לבחור קובץ תמונה בלבד (PNG, JPG, WebP, SVG)');
+      return;
+    }
+
+    if (file.type === 'image/svg+xml') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        if (result) {
+          setLogoUrl(result);
+          setLogoFileSize(`${(file.size / 1024).toFixed(1)} KB (SVG)`);
+        }
+      };
+      reader.onerror = () => setUploadError('שגיאה בקריאת קובץ ה-SVG');
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    setIsProcessingLogo(true);
+    const reader = new FileReader();
+    reader.onload = (readerEvent) => {
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const maxDim = 256;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            setUploadError('לא ניתן לעבד את התמונה');
+            setIsProcessingLogo(false);
+            return;
+          }
+
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const dataUrl = canvas.toDataURL('image/png');
+          setLogoUrl(dataUrl);
+          const kb = Math.round((dataUrl.length * 3) / 4 / 1024);
+          setLogoFileSize(`${kb} KB (מותאם אישית)`);
+        } catch (err) {
+          console.error('Error resizing logo image:', err);
+          setUploadError('שגיאה בעיבוד התמונה');
+        } finally {
+          setIsProcessingLogo(false);
+        }
+      };
+      img.onerror = () => {
+        setUploadError('קובץ התמונה פגום או לא נתמך');
+        setIsProcessingLogo(false);
+      };
+      img.src = readerEvent.target?.result as string;
+    };
+    reader.onerror = () => {
+      setUploadError('שגיאה בטעינת הקובץ');
+      setIsProcessingLogo(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Auto-generate slug when name changes in create mode
   const handleNameChange = (val: string) => {
@@ -166,6 +273,9 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
     setAllowRegistration(true);
     setRequireCode(false);
     setCustomWelcome('');
+    setUploadError(null);
+    setLogoFileSize(null);
+    setLogoMode('upload');
     setActiveFormTab('general');
     setFormError(null);
     setFormSuccess(null);
@@ -183,6 +293,9 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
     setIsActive(school.isActive !== false);
     setPrimaryColor(school.branding?.primaryColor || '#d97706');
     setLogoUrl(school.branding?.logoUrl || '');
+    setUploadError(null);
+    setLogoFileSize(school.branding?.logoUrl?.startsWith('data:') ? 'מותאם אישית' : null);
+    setLogoMode(school.branding?.logoUrl?.startsWith('http') ? 'url' : 'upload');
     setWelcomeTitle(school.branding?.welcomeTitle || '');
     setWelcomeSubtitle(school.branding?.welcomeSubtitle || '');
     setClasses([...(school.classes || [])]);
@@ -213,6 +326,9 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
     setIsActive(true);
     setPrimaryColor(sourceSchool.branding?.primaryColor || '#d97706');
     setLogoUrl(sourceSchool.branding?.logoUrl || '');
+    setUploadError(null);
+    setLogoFileSize(sourceSchool.branding?.logoUrl?.startsWith('data:') ? 'מותאם אישית' : null);
+    setLogoMode(sourceSchool.branding?.logoUrl?.startsWith('http') ? 'url' : 'upload');
     setWelcomeTitle(sourceSchool.branding?.welcomeTitle || '');
     setWelcomeSubtitle(sourceSchool.branding?.welcomeSubtitle || '');
     setClasses([...(sourceSchool.classes || [])]);
@@ -466,7 +582,17 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
             </p>
           </div>
 
-          <div className="flex items-center gap-3 self-start md:self-auto shrink-0">
+          <div className="flex items-center gap-3 self-start md:self-auto shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSyncManagers}
+              disabled={isSyncing}
+              title="סנכרן את כל מנהלי המוסדות לקולקציית managers ב-Firestore"
+              className="px-4 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-xs sm:text-sm rounded-2xl transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <ShieldCheck className={`w-4 h-4 text-amber-300 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'מסנכרן...' : 'סנכרן מנהלים ל-Firestore'}</span>
+            </button>
             <button
               type="button"
               onClick={refreshSchools}
@@ -485,6 +611,14 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
             </button>
           </div>
         </div>
+
+        {/* Sync feedback notification */}
+        {syncFeedback && (
+          <div className="mt-4 p-3 bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs sm:text-sm font-bold rounded-2xl flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{syncFeedback}</span>
+          </div>
+        )}
 
         {/* Quick KPI stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-6 pt-6 border-t border-white/10">
@@ -1092,51 +1226,199 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
                     </div>
                   </div>
 
-                  {/* Logo URL */}
-                  <div>
-                    <label className="block text-xs font-black text-slate-700 mb-1.5">
-                      כתובת לוגו / סמל המוסד (URL)
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="text"
-                        value={logoUrl}
-                        onChange={(e) => setLogoUrl(e.target.value)}
-                        placeholder="/logo-uash.png או קישור https://..."
-                        className="flex-1 px-4 py-2.5 rounded-xl border border-amber-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                      {/* Logo Preview */}
-                      <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white shrink-0 border border-slate-200 overflow-hidden"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        {logoUrl ? (
-                          <img
-                            src={logoUrl}
-                            alt="תצוגה מקדימה"
-                            className="w-full h-full object-contain p-1"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <span>{name.slice(0, 2) || 'סמל'}</span>
-                        )}
+                  {/* Logo Section with Upload and URL options */}
+                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <ImageIcon className="w-4 h-4 text-amber-700" />
+                        <span>לוגו / סמל המוסד</span>
+                      </label>
+
+                      {/* Mode Toggle */}
+                      <div className="flex items-center bg-white p-1 rounded-xl border border-amber-200 text-xs font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setLogoMode('upload')}
+                          className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                            logoMode === 'upload'
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <UploadCloud className="w-3.5 h-3.5" />
+                          <span>העלאת קובץ</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLogoMode('url')}
+                          className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                            logoMode === 'url'
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <LinkIcon className="w-3.5 h-3.5" />
+                          <span>קישור (URL)</span>
+                        </button>
                       </div>
                     </div>
+
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          processImageFile(file);
+                        }
+                        // Reset input so re-selecting same file triggers event
+                        e.target.value = '';
+                      }}
+                    />
+
+                    {uploadError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-bold flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>{uploadError}</span>
+                      </div>
+                    )}
+
+                    {/* UPLOAD MODE */}
+                    {logoMode === 'upload' && (
+                      <div className="space-y-3">
+                        {logoUrl ? (
+                          <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-xs flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-white shrink-0 border border-slate-200 overflow-hidden shadow-xs p-1"
+                                style={{ backgroundColor: primaryColor }}
+                              >
+                                <img
+                                  src={logoUrl}
+                                  alt="סמל המוסד"
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-xs font-black text-slate-800 block truncate">
+                                  סמל מוסד פעיל
+                                </span>
+                                <span className="text-[11px] font-bold text-amber-700 block">
+                                  {logoFileSize || (logoUrl.startsWith('data:') ? 'תמונה מוטמעת' : 'קובץ קיים')}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isProcessingLogo}
+                                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl border border-amber-300 transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                <UploadCloud className="w-3.5 h-3.5" />
+                                <span>החלף לוגו</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLogoUrl('');
+                                  setLogoFileSize(null);
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 text-xs font-bold rounded-xl border border-slate-200 transition-all cursor-pointer"
+                              >
+                                הסר
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => fileInputRef.current?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) processImageFile(file);
+                            }}
+                            className="border-2 border-dashed border-amber-300 hover:border-amber-500 rounded-2xl p-6 bg-white text-center cursor-pointer transition-all hover:bg-amber-50/30 group"
+                          >
+                            <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-amber-100 group-hover:bg-amber-200 text-amber-700 flex items-center justify-center transition-all">
+                              <UploadCloud className="w-6 h-6" />
+                            </div>
+                            <span className="text-xs sm:text-sm font-black text-slate-800 block mb-1">
+                              {isProcessingLogo ? 'מעבד ומכווץ תמונה...' : 'לחצי כאן להעלאת לוגו או גררי קובץ'}
+                            </span>
+                            <span className="text-[11px] font-bold text-slate-500 block">
+                              תמיכה בקבצי תמונה: PNG, JPG, WebP, SVG (התאמה אוטומטית של גודל)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* URL MODE */}
+                    {logoMode === 'url' && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={logoUrl}
+                          onChange={(e) => {
+                            setLogoUrl(e.target.value);
+                            setLogoFileSize(null);
+                          }}
+                          placeholder="/logo-uash.png או קישור https://..."
+                          className="flex-1 px-4 py-2.5 rounded-xl border border-amber-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                        />
+                        <div
+                          className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white shrink-0 border border-slate-200 overflow-hidden"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          {logoUrl ? (
+                            <img
+                              src={logoUrl}
+                              alt="תצוגה מקדימה"
+                              className="w-full h-full object-contain p-1"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span>{name.slice(0, 2) || 'סמל'}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Quick Presets */}
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[11px] font-bold text-slate-500">בחירה מהירה:</span>
                       <button
                         type="button"
-                        onClick={() => setLogoUrl('/logo-uash.png')}
-                        className="text-[11px] font-bold text-amber-700 hover:underline bg-amber-50 px-2 py-1 rounded-lg"
+                        onClick={() => {
+                          setLogoUrl('/logo-uash.png');
+                          setLogoFileSize(null);
+                        }}
+                        className="text-[11px] font-bold text-amber-700 hover:underline bg-white px-2 py-1 rounded-lg border border-amber-200"
                       >
                         סמל אולפנת שבות רחל
                       </button>
                       <button
                         type="button"
-                        onClick={() => setLogoUrl('')}
-                        className="text-[11px] font-bold text-slate-600 hover:underline bg-slate-100 px-2 py-1 rounded-lg"
+                        onClick={() => {
+                          setLogoUrl('');
+                          setLogoFileSize(null);
+                        }}
+                        className="text-[11px] font-bold text-slate-600 hover:underline bg-white px-2 py-1 rounded-lg border border-slate-200"
                       >
                         ללא לוגו (מונוגרמה בלבד)
                       </button>
@@ -1516,3 +1798,4 @@ export const SchoolsManagerTab: React.FC<SchoolsManagerTabProps> = ({ onSwitchSc
     </div>
   );
 };
+

@@ -42,6 +42,7 @@ export interface TenantContextType {
   refreshSchools: () => Promise<void>;
   saveSchool: (school: School) => Promise<void>;
   deleteSchool: (schoolId: string) => Promise<void>;
+  syncAllManagers: () => Promise<number>;
 }
 
 export const DEFAULT_SCHOOL_ID = 'shvut-rachel';

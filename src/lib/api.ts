@@ -286,8 +286,28 @@ export async function fetchStudents(schoolId?: string): Promise<Student[]> {
   };
 
   try {
-    const managerSnap = await getDocs(query(collection(db, 'managers'), where('email', '==', email)));
-    if (!managerSnap.empty) {
+    const isSuperAdminEmail = SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL.toLowerCase();
+    const safeDocId = email.replace(/[^a-zA-Z0-9_]/g, '_');
+    const [directDocSnap, managerSnap] = await Promise.all([
+      getDoc(doc(db, 'managers', safeDocId)).catch(() => null),
+      getDocs(query(collection(db, 'managers'), where('email', '==', email))).catch(() => null),
+    ]);
+
+    let isManager = isSuperAdminEmail || (directDocSnap && directDocSnap.exists()) || (managerSnap && !managerSnap.empty);
+
+    if (!isManager) {
+      try {
+        const schoolsSnap = await getDocs(collection(db, 'schools'));
+        isManager = schoolsSnap.docs.some((d) => {
+          const data = d.data() as { adminEmails?: string[] };
+          return Array.isArray(data.adminEmails) && data.adminEmails.some((e) => e.trim().toLowerCase() === email);
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    if (isManager) {
       const snap = await getDocs(collection(db, 'students'));
       return snap.docs
         .map((studentDoc) => studentDoc.data() as Student)
@@ -320,12 +340,31 @@ export async function getOrCreateManagerParticipant(): Promise<Student> {
     throw new Error('יש להתחבר באמצעות חשבון Google מאומת כדי להשתתף בחידון');
   }
 
-  const managerQuery = query(collection(db, 'managers'), where('email', '==', email));
-  const managerSnapshot = await getDocs(managerQuery);
-  if (managerSnapshot.empty) {
+  const isSuperAdminEmail = SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL.toLowerCase();
+  const safeDocId = email.replace(/[^a-zA-Z0-9_]/g, '_');
+  const [directDocSnap, managerSnapshot] = await Promise.all([
+    getDoc(doc(db, 'managers', safeDocId)).catch(() => null),
+    getDocs(query(collection(db, 'managers'), where('email', '==', email))).catch(() => null),
+  ]);
+
+  let manager: Manager | null = null;
+  if (directDocSnap && directDocSnap.exists()) {
+    manager = directDocSnap.data() as Manager;
+  } else if (managerSnapshot && !managerSnapshot.empty) {
+    manager = managerSnapshot.docs[0].data() as Manager;
+  } else if (isSuperAdminEmail) {
+    manager = {
+      email,
+      name: firebaseUser.displayName || 'Super Admin',
+      role: 'superadmin',
+      addedAt: new Date().toISOString(),
+      schoolIds: ['all'],
+    };
+  }
+
+  if (!manager) {
     throw new Error('ההשתתפות בחידון זמינה למנהלות בלבד');
   }
-  const manager = managerSnapshot.docs[0].data() as Manager;
   let hash = 2166136261;
   for (let index = 0; index < email.length; index += 1) {
     hash = Math.imul(hash ^ email.charCodeAt(index), 16777619);

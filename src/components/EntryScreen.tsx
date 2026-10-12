@@ -27,10 +27,12 @@ import { useTenant } from '../context/SchoolContext';
 
 interface EntryScreenProps {
   onLoginSuccess: (student: Student | 'admin', token: string) => void;
+  onOpenHeadOffice?: () => void;
 }
 
 export const EntryScreen: React.FC<EntryScreenProps> = ({
   onLoginSuccess,
+  onOpenHeadOffice,
 }) => {
   const { currentSchool, currentSchoolId, setSchoolId, availableSchools, genderText } = useTenant();
   const [mode, setMode] = useState<'register' | 'login' | 'pending' | 'admin_login'>('register');
@@ -119,6 +121,9 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       }
 
       if (resolved.role === 'admin') {
+        if (resolved.schoolId && resolved.schoolId !== currentSchoolId) {
+          setSchoolId(resolved.schoolId);
+        }
         setSuccessMsg(`שלום ${resolved.name || userEmail}! זוהית בהצלחה כמנהל/ת מאושר/ת.`);
         setTimeout(() => {
           onLoginSuccess('admin', idToken);
@@ -790,8 +795,22 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
         </div>
       </div>
 
+      {/* Head Office Portal Button */}
+      {onOpenHeadOffice && (
+        <div className="text-center mt-4">
+          <button
+            type="button"
+            onClick={onOpenHeadOffice}
+            className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 hover:text-amber-950 bg-white/70 hover:bg-white px-4 py-2 rounded-xl border border-amber-300/60 hover:border-amber-400 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+          >
+            <span className="text-sm">🏛️</span>
+            <span>כניסת מטה ראשי (Head Office)</span>
+          </button>
+        </div>
+      )}
+
       {/* Footer */}
-      <div className="text-center mt-6 text-xs text-amber-900/70 font-medium space-y-1">
+      <div className="text-center mt-4 text-xs text-amber-900/70 font-medium space-y-1">
         <p>{currentSchool.name} • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
         <p className="text-[11px] text-amber-800/60">תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א</p>
       </div>

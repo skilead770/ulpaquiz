@@ -13,6 +13,8 @@ import {
   UserPlus,
   Clock,
   LogOut,
+  ChevronLeft,
+  Building2,
 } from 'lucide-react';
 import { Student } from '../types';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
@@ -27,6 +29,7 @@ interface NavbarProps {
   onChangeTab: (tab: 'study' | 'leaderboard' | 'register' | 'admin') => void;
   onResetDemo: () => void;
   onLogout?: () => void;
+  onOpenHeadOffice?: () => void;
   dailyDedication: string;
 }
 
@@ -37,10 +40,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onChangeTab,
   onResetDemo,
   onLogout,
+  onOpenHeadOffice,
   onSelectUser,
   dailyDedication,
 }) => {
-  const { currentSchool, genderText } = useTenant();
+  const { currentSchool, genderText, isSuperAdmin } = useTenant();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
@@ -167,6 +171,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="md:hidden">ניהול</span>
                 </button>
               )}
+
+              {isSuperAdmin && onOpenHeadOffice && (
+                <button
+                  onClick={onOpenHeadOffice}
+                  className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl font-black text-sm bg-gradient-to-r from-slate-900 via-slate-800 to-amber-950 text-amber-300 border border-amber-500/40 hover:border-amber-400 shadow-sm transition-all cursor-pointer"
+                  title="מרכז שליטה מטה ראשי (Head Office)"
+                >
+                  <Building2 className="w-4 h-4 text-amber-400" />
+                  <span>מטה ראשי</span>
+                </button>
+              )}
             </nav>
 
             {/* User Profile Selector & Quick Switcher */}
@@ -244,6 +259,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <span className="font-bold">ממשק צוות ניהול {genderText.institutionType === 'ישיבה' ? 'הישיבה' : 'האולפנה'}</span>
                         </div>
                         <CheckCircle2 className="w-4 h-4 text-amber-700" />
+                      </button>
+                    )}
+
+                    {isSuperAdmin && onOpenHeadOffice && (
+                      <button
+                        onClick={() => {
+                          setShowUserDropdown(false);
+                          onOpenHeadOffice();
+                        }}
+                        className="w-full text-right px-3 py-2 text-xs flex items-center justify-between bg-gradient-to-r from-slate-900 to-amber-950 text-amber-300 hover:from-black hover:to-slate-900 font-bold rounded-xl transition-colors border border-amber-500/30"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-amber-400" />
+                          <span className="font-bold">פורטל מטה ראשי (Head Office)</span>
+                        </div>
+                        <ChevronLeft className="w-4 h-4 text-amber-400" />
                       </button>
                     )}
 

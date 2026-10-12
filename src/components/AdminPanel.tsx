@@ -84,6 +84,7 @@ interface AdminPanelProps {
   onRefreshData: () => void;
   onManagerQuiz: () => Promise<void>;
   onDailyDedicationChange: (name: string) => void;
+  onOpenHeadOffice?: () => void;
 }
 
 const hebrewWeekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -315,6 +316,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
   onManagerQuiz,
   onDailyDedicationChange,
+  onOpenHeadOffice,
 }) => {
   const {
     currentSchool,
@@ -1792,6 +1794,16 @@ ${targetHalacha.content}
                 </select>
               </div>
             )}
+            {isSuperAdmin && onOpenHeadOffice && (
+              <button
+                onClick={onOpenHeadOffice}
+                className="px-3 py-2 bg-gradient-to-r from-slate-900 via-slate-800 to-amber-950 hover:from-black hover:to-slate-900 text-amber-300 border border-amber-500/50 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="מעבר למרכז השליטה של מטה ראשי (Head Office)"
+              >
+                <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>מטה ראשי</span>
+              </button>
+            )}
             <button
               onClick={handleStartManagerQuiz}
               disabled={isStartingManagerQuiz}
@@ -1933,15 +1945,21 @@ ${targetHalacha.content}
 
             {isSuperAdmin && (
               <button
-                onClick={() => setActiveAdminTab('schools')}
+                onClick={() => {
+                  if (onOpenHeadOffice) {
+                    onOpenHeadOffice();
+                  } else {
+                    setActiveAdminTab('schools');
+                  }
+                }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                   activeAdminTab === 'schools'
-                    ? 'bg-amber-600 text-white shadow-md'
+                    ? 'bg-gradient-to-r from-slate-900 to-amber-950 text-amber-300 border border-amber-500/50 shadow-md'
                     : 'text-amber-200 hover:bg-white/10'
                 }`}
               >
                 <Building2 className="w-4 h-4 text-amber-300 shrink-0" />
-                <span>מוסדות לימוד ({availableSchools.length}) [Super]</span>
+                <span>מטה ראשי ומוסדות ({availableSchools.length})</span>
               </button>
             )}
           </div>
@@ -3093,8 +3111,38 @@ ${targetHalacha.content}
                 <tbody className="divide-y divide-amber-100">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-sm font-semibold text-slate-500">
-                        לא נמצאו {genderText.students} לפי החיפוש והסינון שנבחרו.
+                      <td colSpan={8} className="p-8 text-center">
+                        {students.length === 0 ? (
+                          <div className="space-y-3 max-w-md mx-auto py-2">
+                            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto text-xl shadow-xs">
+                              🎓
+                            </div>
+                            <h4 className="font-extrabold text-amber-950 text-base font-['Heebo']">
+                              עדיין לא נרשמו {genderText.students} ב{currentSchool.name}
+                            </h4>
+                            <p className="text-xs text-amber-900/80 leading-relaxed">
+                              ברגע ש{genderText.students} יירשמו באמצעות קישור ההרשמה של המוסד, הם יופיעו כאן ברשימה לאישור {genderText.managerRole}.
+                            </p>
+                            <div className="pt-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const regUrl = `${window.location.origin}/?school=${currentSchoolId}`;
+                                  navigator.clipboard.writeText(regUrl);
+                                  alert('קישור ההרשמה למוסד הועתק ללוח:\n' + regUrl);
+                                }}
+                                className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>העתק קישור הרשמה ל{genderText.students}</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm font-semibold text-slate-500">
+                            לא נמצאו {genderText.students} לפי החיפוש והסינון שנבחרו.
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ) : filteredStudents.map((s) => (

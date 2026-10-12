@@ -108,6 +108,20 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
     );
   };
 
+  // Auto-switch school if current user is an admin of another school
+  useEffect(() => {
+    if (!currentUserEmail || isSuperAdmin) return;
+    const cleanEmail = currentUserEmail.trim().toLowerCase();
+    if (!canManageSchool(currentSchoolId)) {
+      const managedSchool = schools.find((s) =>
+        (s.adminEmails || []).some((e) => e.trim().toLowerCase() === cleanEmail)
+      );
+      if (managedSchool) {
+        setSchoolId(managedSchool.id);
+      }
+    }
+  }, [currentUserEmail, isSuperAdmin, schools, currentSchoolId]);
+
   const refreshSchools = async () => {
     try {
       const snap = await getDocs(collection(db, 'schools'));
@@ -123,9 +137,114 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
     }
   };
 
+  const syncAllManagers = async (): Promise<number> => {
+    let count = 0;
+    try {
+      const superClean = SUPER_ADMIN_EMAIL.trim().toLowerCase();
+      const superDocId = superClean.replace(/[^a-zA-Z0-9_]/g, '_');
+
+      // 1. Ensure super admin documents exist in managers
+      await setDoc(
+        doc(db, 'managers', superDocId),
+        {
+          id: superDocId,
+          email: superClean,
+          name: 'Super Admin',
+          role: 'superadmin',
+          schoolIds: ['all'],
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      count++;
+
+      await setDoc(
+        doc(db, 'managers', 'super_admin'),
+        {
+          id: 'super_admin',
+          email: superClean,
+          name: 'Super Admin',
+          role: 'superadmin',
+          schoolIds: ['all'],
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      // 2. Read all schools from Firestore
+      const snap = await getDocs(collection(db, 'schools'));
+      const allSchools: School[] = snap.empty
+        ? schools
+        : snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<School, 'id'>) }));
+
+      const emailMap = new Map<string, { email: string; schoolIds: Set<string> }>();
+
+      for (const sc of allSchools) {
+        for (const adminEmail of sc.adminEmails || []) {
+          const clean = adminEmail.trim().toLowerCase();
+          if (!clean) continue;
+          if (!emailMap.has(clean)) {
+            emailMap.set(clean, { email: clean, schoolIds: new Set() });
+          }
+          emailMap.get(clean)!.schoolIds.add(sc.id);
+        }
+      }
+
+      for (const [cleanEmail, data] of emailMap.entries()) {
+        const docId = cleanEmail.replace(/[^a-zA-Z0-9_]/g, '_');
+        await setDoc(
+          doc(db, 'managers', docId),
+          {
+            id: docId,
+            email: cleanEmail,
+            name: cleanEmail.split('@')[0],
+            role: cleanEmail === superClean ? 'superadmin' : 'admin',
+            schoolIds: Array.from(data.schoolIds),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+        count++;
+      }
+    } catch (err) {
+      console.error('[SchoolContext] Failed to sync managers:', err);
+      throw err;
+    }
+    return count;
+  };
+
+  // Automatically sync managers when super admin is detected
+  useEffect(() => {
+    if (isSuperAdmin) {
+      syncAllManagers().catch((err) => {
+        console.warn('[SchoolContext] Auto-sync managers error:', err);
+      });
+    }
+  }, [isSuperAdmin]);
+
   const saveSchool = async (school: School) => {
     try {
       await setDoc(doc(db, 'schools', school.id), school, { merge: true });
+
+      // Automatically sync adminEmails to /managers so Firestore security rules recognize them immediately
+      for (const adminEmail of school.adminEmails || []) {
+        const clean = adminEmail.trim().toLowerCase();
+        if (!clean) continue;
+        const docId = clean.replace(/[^a-zA-Z0-9_]/g, '_');
+        await setDoc(
+          doc(db, 'managers', docId),
+          {
+            id: docId,
+            email: clean,
+            name: clean.split('@')[0],
+            role: clean === SUPER_ADMIN_EMAIL.trim().toLowerCase() ? 'superadmin' : 'admin',
+            schoolIds: [school.id],
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+
       setSchools((prev) => {
         const idx = prev.findIndex((s) => s.id === school.id);
         if (idx >= 0) {
@@ -164,6 +283,7 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
         refreshSchools,
         saveSchool,
         deleteSchool,
+        syncAllManagers,
       }}
     >
       {children}
