@@ -23,6 +23,7 @@ import { validateGmailAddress } from '../lib/gmailValidator';
 import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
+import { useTenant } from '../context/SchoolContext';
 
 interface EntryScreenProps {
   onLoginSuccess: (student: Student | 'admin', token: string) => void;
@@ -31,23 +32,27 @@ interface EntryScreenProps {
 export const EntryScreen: React.FC<EntryScreenProps> = ({
   onLoginSuccess,
 }) => {
+  const { currentSchool, currentSchoolId, setSchoolId, availableSchools, genderText } = useTenant();
   const [mode, setMode] = useState<'register' | 'login' | 'pending' | 'admin_login'>('register');
 
   // Simple registration fields: Full Name, GMAIL address, and Class from managed list
   const [fullName, setFullName] = useState('');
   const [gmail, setGmail] = useState('');
-  const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
-  const [selectedClass, setSelectedClass] = useState<string>(DEFAULT_CLASSES[0] || "ט'1");
+  const [classesList, setClassesList] = useState<string[]>(currentSchool.classes?.length ? currentSchool.classes : DEFAULT_CLASSES);
+  const [selectedClass, setSelectedClass] = useState<string>(currentSchool.classes?.[0] || DEFAULT_CLASSES[0] || "ט'1");
 
-  // Load available classes from server/Firestore
+  // Load available classes for current school from server/Firestore
   React.useEffect(() => {
-    fetchClassesApi().then((list) => {
+    fetchClassesApi(currentSchoolId).then((list) => {
       if (list && list.length > 0) {
         setClassesList(list);
         setSelectedClass((prev) => (list.includes(prev) ? prev : list[0]));
+      } else if (currentSchool.classes && currentSchool.classes.length > 0) {
+        setClassesList(currentSchool.classes);
+        setSelectedClass(currentSchool.classes[0]);
       }
     });
-  }, []);
+  }, [currentSchoolId, currentSchool]);
 
   // Pending approval tracked student
   const [pendingStudent, setPendingStudent] = useState<{
@@ -127,6 +132,9 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       }
 
       if (resolved.role === 'student' && resolved.student) {
+        if (resolved.student.schoolId && resolved.student.schoolId !== currentSchoolId) {
+          setSchoolId(resolved.student.schoolId);
+        }
         setSuccessMsg(`שלום ${resolved.student.fullName}! זוהית בהצלחה באמצעות חשבון Google.`);
         setTimeout(() => {
           onLoginSuccess(resolved.student!, idToken);
@@ -144,7 +152,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       }
 
       if (resolved.role === 'rejected') {
-        setError('בקשת ההרשמה של חשבון זה נדחתה. נא לפנות להנהלת האולפנה.');
+        setError(`בקשת ההרשמה של חשבון זה נדחתה. נא לפנות ל${genderText.institutionManagement}.`);
         return;
       }
 
@@ -155,7 +163,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
           setFullName(firebaseUser.displayName);
         }
         setMode('register');
-        setError(resolved.message || `החשבון ${userEmail} אינו רשום עדיין. מלאי את פרטייך והירשמי למבצע.`);
+        setError(resolved.message || `החשבון ${userEmail} אינו רשום עדיין. ${genderText.registerPrompt}.`);
         return;
       }
 
@@ -164,7 +172,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed')) {
         setError('חלון ההתחברות של Google נסגר. נא לנסות שוב.');
       } else if (err.code === 'auth/popup-blocked') {
-        setError('הדפדפן חסם את חלון ההתחברות הקופץ של Google. אנא אפשרי חלונות קופצים (Popups) ורענני.');
+        setError('הדפדפן חסם את חלון ההתחברות הקופץ של Google. אנא אפשרו חלונות קופצים (Popups) ורעננו.');
       } else {
         setError(err.message || 'ההתחברות באמצעות Google נכשלה');
       }
@@ -201,11 +209,12 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
         fullName: fullName.trim(),
         email: validation.normalizedEmail,
         className: selectedClass.trim(),
+        schoolId: currentSchoolId,
       });
 
       // Check if this is a manager
       if (res.isManager || validation.normalizedEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
-        setSuccessMsg(`שלום מנהל המערכת! כתובת זו (${validation.normalizedEmail}) מוגדרת כמנהל. עליך להתחבר עם Google SSO המאובטח.`);
+        setSuccessMsg(`שלום ${genderText.managerRole} המערכת! כתובת זו (${validation.normalizedEmail}) מוגדרת כמנהל. עליך להתחבר עם Google SSO המאובטח.`);
         setMode('admin_login');
         return;
       }
@@ -214,7 +223,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
       // Must wait for admin approval.
       if (res.status === 'approved' && res.student) {
         setMode('login');
-        setSuccessMsg('ההרשמה שלך כבר מאושרת. כדי להיכנס, התחברי עם חשבון Google הרשום במערכת.');
+        setSuccessMsg(`ההרשמה שלך כבר מאושרת. כדי להיכנס, ${genderText.login} עם חשבון Google הרשום במערכת.`);
       } else {
         // Pending approval screen
         setPendingStudent({
@@ -239,16 +248,16 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
     try {
       const res = await checkStudentStatusApi(pendingStudent.email);
       if (res.registered && res.status === 'approved' && res.student) {
-        setSuccessMsg('מזל טוב! הרשמתך אושרה. כעת התחברי באמצעות חשבון Google הרשום במערכת.');
+        setSuccessMsg(`מזל טוב! הרשמתך אושרה. כעת ${genderText.login} באמצעות חשבון Google הרשום במערכת.`);
         setStatusCheckMsg(null);
         setMode('login');
       } else if (res.registered && res.status === 'rejected') {
-        setStatusCheckMsg('בקשת ההרשמה נדחתה. נא לפנות להנהלת האולפנה לבירור.');
+        setStatusCheckMsg(`בקשת ההרשמה נדחתה. נא לפנות ל${genderText.institutionManagement} לבירור.`);
       } else {
-        setStatusCheckMsg('הבקשה עדיין ממתינה לאישור מנהל האולפנה. נסי לבדוק שוב בעוד מספר רגעים.');
+        setStatusCheckMsg(`הבקשה עדיין ממתינה לאישור ${genderText.institutionManagement}.`);
       }
     } catch (e) {
-      setStatusCheckMsg('לא ניתן לבדוק סטטוס כעת. נסי שוב מאוחר יותר.');
+      setStatusCheckMsg('לא ניתן לבדוק סטטוס כעת. נסו שוב מאוחר יותר.');
     } finally {
       setIsCheckingStatus(false);
     }
@@ -267,8 +276,8 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             <div className="flex items-center justify-center gap-3">
               <div className="h-14 sm:h-16 px-3 bg-white/95 backdrop-blur-sm border border-amber-300/60 rounded-2xl shadow-lg flex items-center justify-center">
                 <img
-                  src={ULPANA_LOGO_URL}
-                  alt="לוגו אולפנא"
+                  src={currentSchool.branding.logoUrl || ULPANA_LOGO_URL}
+                  alt={`לוגו ${currentSchool.name}`}
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
                   className="max-h-10 sm:max-h-12 w-auto object-contain"
@@ -287,18 +296,36 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             <div>
               <div className="inline-flex items-center gap-1.5 bg-amber-600/40 border border-amber-300/30 text-amber-200 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 rounded-full font-bold mb-2">
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                <span>חידון הלכה יומית • אולפנת אבן שמואל • תשפ"ז</span>
+                <span>{genderText.welcomeGreeting}</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-['Heebo']">
-                ספר "אהלי הלכה"
+                {currentSchool.name}
               </h1>
               <p className="text-xs sm:text-sm text-amber-200/90 font-medium mt-1">
-                לימוד יומי קצר, חידון חוויתי וצבירת נקודות לפרסים יקרי ערך
+                ספר "אהלי הלכה" • לימוד יומי קצר, חידון חוויתי וצבירת נקודות לפרסים יקרי ערך
               </p>
               <p className="mt-3 text-xs sm:text-sm font-bold text-yellow-200">
                 הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי״ד
               </p>
             </div>
+
+            {availableSchools.length > 1 && (
+              <div className="mt-2 flex items-center justify-center gap-2">
+                <span className="text-[11px] text-amber-200/90 font-bold">מוסד לימוד:</span>
+                <select
+                  value={currentSchoolId}
+                  onChange={(e) => setSchoolId(e.target.value)}
+                  className="bg-black/30 hover:bg-black/40 text-amber-100 text-xs font-bold border border-amber-300/40 rounded-xl px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-300 cursor-pointer"
+                  aria-label="בחירת מוסד לימוד"
+                >
+                  {availableSchools.map((s) => (
+                    <option key={s.id} value={s.id} className="bg-amber-950 text-white">
+                      {s.name} ({s.type === 'boys' ? 'ישיבה' : 'אולפנה'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -319,7 +346,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               }`}
             >
               <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
-              <span>הרשמה<span className="hidden sm:inline"> חדשה</span></span>
+              <span>הרשמה<span className="hidden sm:inline"> למערכת</span></span>
             </button>
 
             <button
@@ -336,7 +363,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               }`}
             >
               <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
-              <span>כניסה<span className="hidden sm:inline"> לתלמידה</span></span>
+              <span>כניסה<span className="hidden sm:inline"> ל{genderText.student}</span></span>
             </button>
 
             <button
@@ -353,7 +380,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
-              <span>כניסת מנהל</span>
+              <span>כניסת {genderText.managerRole}</span>
             </button>
           </div>
         )}
@@ -388,10 +415,10 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   ⏳ ההרשמה נקלטה בהצלחה
                 </span>
                 <h2 className="text-xl font-extrabold text-amber-950 font-['Heebo']">
-                  ממתינה לאישור מנהל האולפנה
+                  ממתינ{genderText.student === 'תלמיד' ? '' : 'ה'} לאישור {genderText.institutionManagement}
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
-                  שלום {pendingStudent?.fullName || 'יקרה'}! פרטייך נקלטו במערכת. מטעמי סדר ואבטחה, כל תלמידה ממתינה לאישור קצר של הנהלת המבצע.
+                  שלום {pendingStudent?.fullName || (genderText.student === 'תלמיד' ? 'יקר' : 'יקרה')}! פרטייך נקלטו במערכת. מטעמי סדר ואבטחה, כל {genderText.student} ממתינ{genderText.student === 'תלמיד' ? '' : 'ה'} לאישור קצר של {genderText.institutionManagement}.
                 </p>
               </div>
 
@@ -416,7 +443,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   className="w-full py-3.5 px-6 rounded-2xl font-extrabold text-sm text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-                  <span>{isCheckingStatus ? 'בודק סטטוס...' : 'בדקי אם המנהל כבר אישר אותך'}</span>
+                  <span>{isCheckingStatus ? 'בודק סטטוס...' : `בדק${genderText.student === 'תלמיד' ? '' : 'י'} אם ${genderText.institutionManagement} כבר אישרה אותך`}</span>
                 </button>
 
                 <button
@@ -445,7 +472,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   הצטרפות פשוטה למבצע
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  הזיני שם מלא, בחרי כיתה וכתובת Gmail. לאחר אישור המנהל, התחברי באמצעות חשבון Google הרשום במערכת.
+                  הזינ{genderText.student === 'תלמיד' ? 'ה' : 'י'} שם מלא, {genderText.chooseClass} וכתובת Gmail. לאחר אישור {genderText.institutionManagement}, {genderText.login} באמצעות חשבון Google הרשום במערכת.
                 </p>
               </div>
 
@@ -554,7 +581,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 )}
 
                 <p className="text-[11px] text-slate-500">
-                  ודאי שהמייל מסתיים ב-<strong>@gmail.com</strong> ומכיל בין 6 ל-30 תווים באנגלית או ספרות בלבד.
+                  ודא{genderText.student === 'תלמיד' ? '' : 'י'} שהמייל מסתיים ב-<strong>@gmail.com</strong> ומכיל בין 6 ל-30 תווים באנגלית או ספרות בלבד.
                 </p>
               </div>
 
@@ -610,7 +637,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>שליחת בקשת הרשמה לאישור המנהל</span>
+                    <span>שליחת בקשת הרשמה לאישור {genderText.institutionManagement}</span>
                     <ArrowLeft className="w-4 h-4" />
                   </>
                 )}
@@ -619,7 +646,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
               <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 text-[11px] text-amber-900 leading-relaxed flex items-start gap-1.5">
                 <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                 <span>
-                  <strong>לתשומת ליבך:</strong> לאחר אישור ההרשמה, התחברי באמצעות חשבון Google הרשום במערכת.
+                  <strong>לתשומת ליבך:</strong> לאחר אישור ההרשמה, {genderText.login} באמצעות חשבון Google הרשום במערכת.
                 </span>
               </div>
             </form>
@@ -632,10 +659,10 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             <div className="space-y-5">
               <div className="text-center pb-1">
                 <h2 className="text-base sm:text-lg font-extrabold text-amber-950 font-['Heebo']">
-                  שלום שוב! כניסה לתלמידה רשומה
+                  שלום שוב! כניסה ל{genderText.student} {genderText.registered}
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  הכניסה זמינה רק לתלמידות שאושרו, באמצעות חשבון Google הרשום במערכת.
+                  הכניסה זמינה רק ל{genderText.students} שאושרו, באמצעות חשבון Google הרשום במערכת.
                 </p>
               </div>
 
@@ -688,7 +715,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                   🔐 אזור ניהול מאובטח • כניסת מנהלים בלבד
                 </span>
                 <h2 className="text-xl font-extrabold text-amber-950 font-['Heebo']">
-                  התחברות מנהל באמצעות Google SSO
+                  התחברות {genderText.managerRole} באמצעות Google SSO
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
                   הגישה לממשק הניהול מוגנת ודורשת אימות זהות מאובטח של Google. רק מנהלים מורשים (כגון ${SUPER_ADMIN_EMAIL}) רשאים להיכנס.
@@ -724,7 +751,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                           d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                         />
                       </svg>
-                      <span>אימות וכניסה עם חשבון Google מנהל</span>
+                      <span>אימות וכניסה עם חשבון Google {genderText.managerRole}</span>
                     </>
                   )}
                 </button>
@@ -743,7 +770,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-slate-600 bg-amber-50/50 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 p-3.5 sm:p-4 rounded-b-3xl border-t border-amber-200/60">
             <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
               <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>מנהל/ת מערכת או צוות?</span>
+              <span>{genderText.managerRole}/ת מערכת או צוות?</span>
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
@@ -756,7 +783,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
                 className="w-full sm:w-auto font-bold text-xs text-white bg-amber-700 hover:bg-amber-800 px-3.5 py-2 rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <Lock className="w-3.5 h-3.5" />
-                <span>כניסה מאובטחת למנהל (Google SSO)</span>
+                <span>כניסה מאובטחת ל{genderText.managerRole} (Google SSO)</span>
               </button>
             </div>
           </div>
@@ -765,7 +792,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
 
       {/* Footer */}
       <div className="text-center mt-6 text-xs text-amber-900/70 font-medium space-y-1">
-        <p>אולפנת בני עקיבא אבן שמואל • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
+        <p>{currentSchool.name} • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
         <p className="text-[11px] text-amber-800/60">תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א</p>
       </div>
     </div>

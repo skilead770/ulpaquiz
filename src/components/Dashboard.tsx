@@ -16,6 +16,7 @@ import {
 import { Student, DailyHalacha, PrizeMilestone } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { formatQuizDateLabel } from '../lib/quizSchedule';
+import { useTenant } from '../context/SchoolContext';
 
 interface DashboardProps {
   student: Student;
@@ -47,6 +48,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onViewLeaderboards,
 }) => {
   const [showSubmissionDetails, setShowSubmissionDetails] = useState(false);
+  const { currentSchool, genderText } = useTenant();
+  const isBoys = currentSchool.type === 'boys';
 
   const currentHalacha = halachot.find((h) => h.date === selectedDate);
   const canTakeQuiz = availableQuizDates.includes(selectedDate) && currentHalacha?.quizEnabled !== false;
@@ -88,7 +91,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="md:col-span-7 space-y-2.5 sm:space-y-3">
             <div className="inline-flex items-center gap-2 bg-amber-500/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold text-amber-200 border border-amber-400/30">
               <GraduationCap className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>תלמידת כיתה {student.className} • שכבת {student.grade}'</span>
+              <span>{isBoys ? 'תלמיד' : 'תלמידת'} כיתה {student.className} • שכבת {student.grade}'</span>
             </div>
 
             <h2 className="text-xl sm:text-3xl font-extrabold tracking-tight font-['Heebo']">
@@ -103,7 +106,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onClick={onViewLeaderboards}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white text-amber-950 font-extrabold text-xs px-4 py-2.5 rounded-2xl shadow-md hover:bg-amber-100 transition-all hover:scale-105 active:scale-95 cursor-pointer"
               >
-                <span>צפי במיקום הכיתה והשכבה שלך</span>
+                <span>{isBoys ? 'צפה במיקום הכיתה והשכבה שלך' : 'צפי במיקום הכיתה והשכבה שלך'}</span>
                 <ArrowLeft className="w-4 h-4 shrink-0" />
               </button>
             </div>
@@ -149,10 +152,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="space-y-1">
             <h4 className="font-extrabold text-sm sm:text-base text-amber-950 font-['Heebo'] flex items-center gap-2">
-              <span>בקשת ההרשמה שלך נקלטה וממתינה לאישור המנהל ⏳</span>
+              <span>בקשת ההרשמה שלך נקלטה וממתינה לאישור {genderText.institutionManagement} ⏳</span>
             </h4>
             <p className="text-xs text-amber-900 font-medium leading-relaxed">
-              תוכלי לעיין בהלכות היומיות כבר עכשיו. ברגע שמנהלת האולפנה תאשר את הרשמתך, כפתור החידון יופעל ותוכלי להתחיל לצבור נקודות!
+              {isBoys
+                ? `תוכל לעיין בהלכות היומיות כבר עכשיו. ברגע שהנהלת ה${genderText.institutionType} תאשר את הרשמתך, כפתור החידון יופעל ותוכל להתחיל לצבור נקודות!`
+                : `תוכלי לעיין בהלכות היומיות כבר עכשיו. ברגע שהנהלת ה${genderText.institutionType} תאשר את הרשמתך, כפתור החידון יופעל ותוכלי להתחיל לצבור נקודות!`}
             </p>
           </div>
         </div>
@@ -240,7 +245,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               ) : canTakeQuiz ? (
               <div className="bg-amber-200/80 text-amber-950 px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-bold border border-amber-300/60 shrink-0 self-start sm:self-auto">
                 <Flame className="w-4 h-4 text-amber-700 animate-bounce shrink-0" />
-                <span>מוכנה לחידון? קראי ועני!</span>
+                <span>{isBoys ? 'מוכן לחידון? קרא וענה!' : 'מוכנה לחידון? קראי ועני!'}</span>
               </div>
               ) : (
                 <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-2xl text-xs font-bold border border-slate-200 shrink-0 self-start sm:self-auto">
@@ -278,7 +283,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     className="w-full sm:w-auto bg-amber-100 text-amber-900 hover:bg-amber-200 font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
-                    <span>{showSubmissionDetails ? 'הסתר תוצאות חידון' : 'צפי בתשובות והסברים'}</span>
+                    <span>{showSubmissionDetails ? 'הסתר תוצאות חידון' : isBoys ? 'צפה בתשובות והסברים' : 'צפי בתשובות והסברים'}</span>
                   </button>
 
                   <button
@@ -291,7 +296,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               ) : (
                 <div className="w-full sm:w-auto text-center text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl">
-                  {selectedDate !== todayDate ? 'החידון ייפתח ביום שלו' : 'המנהלת השביתה את החידון לתאריך זה'}
+                  {selectedDate !== todayDate ? 'החידון ייפתח ביום שלו' : `הנהלת ה${genderText.institutionType} השביתה את החידון לתאריך זה`}
                 </div>
               )}
             </div>
@@ -348,7 +353,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ) : (
         <div className="bg-white p-6 sm:p-8 rounded-2xl text-center text-slate-600 border border-amber-200 text-sm space-y-3">
           {isLoadingHalachot ? (
-            <p role="status">טוענת את ההלכה והחידון היומי...</p>
+            <p role="status">טוען את ההלכה והחידון היומי...</p>
           ) : halachotLoadError ? (
             <>
               <p role="alert">לא ניתן לטעון את ההלכה והחידון היומי.</p>
@@ -358,7 +363,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onClick={onRetryLoad}
                 className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700"
               >
-                נסי לטעון שוב
+                {isBoys ? 'נסה לטעון שוב' : 'נסי לטעון שוב'}
               </button>
             </>
           ) : (
@@ -369,7 +374,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onClick={onRetryLoad}
                 className="rounded-xl border border-amber-300 px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-50"
               >
-                רענני את ההלכות
+                {isBoys ? 'רענן את ההלכות' : 'רענני את ההלכות'}
               </button>
             </>
           )}

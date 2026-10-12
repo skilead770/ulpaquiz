@@ -82,6 +82,7 @@ export interface Student {
   registeredAt?: string;
   invitationCode?: string;
   managerParticipation?: boolean;
+  schoolId?: string;
 }
 
 export interface PublicStudentSummary {
@@ -91,6 +92,7 @@ export interface PublicStudentSummary {
   grade: GradeType;
   points: number;
   completedDates: string[];
+  schoolId?: string;
 }
 
 export interface Invitation {
@@ -102,6 +104,7 @@ export interface Invitation {
   usedCount: number;
   createdAt: string;
   active: boolean;
+  schoolId?: string;
 }
 
 export interface ClassLeaderboardItem {
@@ -159,4 +162,7 @@ export interface Manager {
   name: string;
   role: 'superadmin' | 'admin';
   addedAt: string;
+  schoolIds?: string[];
 }
+
+export * from './types/tenant';

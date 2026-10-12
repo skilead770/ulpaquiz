@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Sparkles, X, Trophy } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PrizeMilestone } from '../types';
+import { useTenant } from '../context/SchoolContext';
 
 interface MilestoneModalProps {
   milestone: PrizeMilestone;
@@ -12,6 +13,8 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
   milestone,
   onClose,
 }) => {
+  const { currentSchool, genderText } = useTenant();
+  const isBoys = currentSchool.type === 'boys';
   useEffect(() => {
     // Fire confetti effect when milestone pop-up opens!
     confetti({
@@ -59,7 +62,7 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
         <div className="bg-amber-100/80 border border-amber-200 p-3.5 sm:p-4 rounded-2xl text-xs text-amber-900 font-bold flex items-center gap-2 text-right">
           <Sparkles className="w-5 h-5 text-amber-600 shrink-0" />
           <span>
-            צוות האולפנה גאה בך על ההתמדה והלימוד היומי. הפרס האישי מחכה לך בחדר המורות!
+            צוות ה{genderText.institutionType} גאה בך על ההתמדה והלימוד היומי. הפרס האישי מחכה לך {isBoys ? 'בחדר המורים / במזכירות' : 'בחדר המורות'}!
           </span>
         </div>
 
@@ -67,7 +70,7 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
           onClick={onClose}
           className="w-full bg-gradient-to-r from-amber-600 to-yellow-500 text-white font-black text-sm py-3.5 rounded-2xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
         >
-          המשיכי בלימוד והצלחה! ✨
+          {isBoys ? 'המשך בלימוד והצלחה! ✨' : 'המשיכי בלימוד והצלחה! ✨'}
         </button>
       </div>
     </div>

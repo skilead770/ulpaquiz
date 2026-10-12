@@ -15,6 +15,7 @@ import confetti from 'canvas-confetti';
 import { DailyHalacha, Student, PrizeMilestone } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { submitQuizApi } from '../lib/api';
+import { useTenant } from '../context/SchoolContext';
 
 interface QuizModalProps {
   student: Student;
@@ -34,6 +35,9 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   onClose,
   onQuizSubmitted,
 }) => {
+  const { currentSchool, genderText } = useTenant();
+  const isBoys = currentSchool.type === 'boys';
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [confirmedStudy, setConfirmedStudy] = useState(false);
@@ -91,7 +95,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
 
   const handleSubmit = async () => {
     if (!allAnswered) {
-      setErrorMsg('אנא עני על כל 4 השאלות לפני הגשת החידון!');
+      setErrorMsg(isBoys ? 'אנא ענה על כל 4 השאלות לפני הגשת החידון!' : 'אנא עני על כל 4 השאלות לפני הגשת החידון!');
       return;
     }
 
@@ -183,6 +187,8 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   <p className="text-[11px] sm:text-xs text-emerald-800/90 font-medium truncate">
                     {confirmedStudy
                       ? 'אישרת שלמדת בשמחה (+5 נקודות!)'
+                      : isBoys
+                      ? 'קראת את ההלכה? לחץ לקבלת 5 נקודות'
                       : 'קראת את ההלכה? לחצי לקבלת 5 נקודות'}
                   </p>
                 </div>
@@ -197,7 +203,9 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                     : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100 active:scale-95'
                 }`}
               >
-                {confirmedStudy ? '✓ מוכנה לחידון!' : 'קראתי ולמדתי / מוכנה לחידון ✨'}
+                {confirmedStudy
+                  ? isBoys ? '✓ מוכן לחידון!' : '✓ מוכנה לחידון!'
+                  : isBoys ? 'קראתי ולמדתי / מוכן לחידון ✨' : 'קראתי ולמדתי / מוכנה לחידון ✨'}
               </button>
             </div>
 
@@ -317,7 +325,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer"
                 >
                   <Trophy className="w-4 h-4 shrink-0" />
-                  <span>{isSubmitting ? 'מגיש...' : 'הגש חידון'}</span>
+                  <span>{isSubmitting ? 'מגיש...' : isBoys ? 'הגש חידון' : 'הגישי חידון'}</span>
                 </button>
               )}
             </div>
@@ -342,7 +350,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 {quizResult.milestonesReached.length > 0
                   ? '🏆 הגעת ליעד פרס חדש!'
                   : quizResult.isPerfect
-                  ? '🌟 מצטיינת יומית (4/4)'
+                  ? isBoys ? '🌟 מצטיין יומי (4/4)' : '🌟 מצטיינת יומית (4/4)'
                   : '👏 השתתפות מבורכת'}
               </span>
               <h3 className="text-xl sm:text-2xl font-extrabold text-amber-950 font-['Heebo']">
@@ -372,7 +380,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 </p>
               </div>
               <div className="bg-amber-100/90 rounded-xl p-2 sm:p-2.5 border border-amber-300 shadow-2xs">
-                <p className="text-[11px] sm:text-xs text-amber-900 font-extrabold">סך כל נקודותייך</p>
+                <p className="text-[11px] sm:text-xs text-amber-900 font-extrabold">{isBoys ? 'סך כל נקודותיך' : 'סך כל נקודותייך'}</p>
                 <p className="text-lg sm:text-2xl font-black text-amber-950 font-['Heebo']">
                   {quizResult.newPoints} <span className="text-xs font-bold text-amber-900">נק'</span>
                 </p>
@@ -386,7 +394,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 <span>+{quizResult.earnedPoints} נק' לחידון זה</span>
               </div>
               <div className="flex justify-between items-center">
-                <span>קריאת ולימוד ההלכה ("קראתי ולמדתי / מוכנה לחידון"):</span>
+                <span>קריאת ולימוד ההלכה ("קראתי ולמדתי / {isBoys ? 'מוכן לחידון' : 'מוכנה לחידון'}"):</span>
                 <span className={quizResult.confirmedStudy ? 'text-emerald-700 font-bold' : 'text-slate-400'}>
                   {quizResult.confirmedStudy ? '+5 נק\'' : '0 נק\''}
                 </span>
@@ -425,7 +433,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   🎁 הפרס שלך: {quizResult.milestonesReached[0].rewardDescription}
                 </div>
                 <p className="text-[11px] text-amber-800 font-semibold">
-                  הפרס האישי מחכה לך בחדר המורות! כל הכבוד על ההתמדה והלימוד! ✨
+                  הפרס האישי מחכה לך {isBoys ? 'בחדר המורים / במזכירות' : 'בחדר המורות'}! כל הכבוד על ההתמדה והלימוד! ✨
                 </p>
               </div>
             ) : nextMilestone ? (
@@ -454,14 +462,14 @@ export const QuizModal: React.FC<QuizModalProps> = ({
             ) : null}
 
             <p className="text-xs text-amber-800/90 font-semibold">
-              ✨ הענקת כעת +{quizResult.earnedPoints} נקודות לך, לכיתה שלך ולשכבה שלך במאזן האולפני!
+              ✨ הענקת כעת +{quizResult.earnedPoints} נקודות לך, לכיתה שלך ולשכבה שלך במאזן ה{genderText.institutionType === 'ישיבה' ? 'ישיבתי' : 'אולפני'}!
             </p>
 
             <button
               onClick={onClose}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-3.5 rounded-2xl shadow-md transition-all text-sm cursor-pointer"
             >
-              סגרי וצפי בלוח המובילים
+              {isBoys ? 'סגור וצפה בלוח המובילים' : 'סגרי וצפי בלוח המובילים'}
             </button>
           </div>
         )}

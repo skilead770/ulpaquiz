@@ -20,6 +20,7 @@ import {
   PrizeMilestone,
 } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
+import { useTenant } from '../context/SchoolContext';
 
 interface LeaderboardsProps {
   currentStudent: Student;
@@ -34,6 +35,9 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
   selectedDate,
   prizeMilestones,
 }) => {
+  const { currentSchool, genderText } = useTenant();
+  const isBoys = currentSchool.type === 'boys';
+
   const [activeSubTab, setActiveSubTab] = useState<
     'my-class' | 'class-league' | 'grade-league'
   >('my-class');
@@ -81,7 +85,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           >
             <Users className="w-4 h-4 shrink-0" />
             <span>הכיתה שלי</span>
-            <span className="hidden sm:inline"> (מי עוד סיימה?)</span>
+            <span className="hidden sm:inline"> {isBoys ? '(מי עוד סיים?)' : '(מי עוד סיימה?)'}</span>
           </button>
 
           <button
@@ -125,7 +129,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
               <Crown className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
-              <span>התלמידה המובילה באולפנה (מקום 1)</span>
+              <span>{genderText.leadingStudent} ב{genderText.institutionType === 'ישיבה' ? 'ישיבה' : 'אולפנה'} (מקום 1)</span>
             </div>
 
             {leaderboardData.leadingStudents.length > 1 ? (
@@ -203,10 +207,10 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
               <div>
                 <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
                   <Users className="w-5 h-5 text-amber-600 shrink-0" />
-                  <span>בנות כיתה {currentStudent.className} ("מי עוד סיימה?")</span>
+                  <span>{isBoys ? 'תלמידי' : 'בנות'} כיתה {currentStudent.className} ("{isBoys ? 'מי עוד סיים?' : 'מי עוד סיימה?'}")</span>
                 </h3>
                 <p className="text-xs text-amber-800 font-medium mt-0.5">
-                  {myClassCompletedCount} מתוך {myClassmates.length} בנות בכיתה כבר למדו וענו היום!
+                  {myClassCompletedCount} מתוך {myClassmates.length} {isBoys ? 'תלמידים' : 'בנות'} בכיתה כבר למדו וענו היום!
                 </p>
               </div>
 
@@ -253,12 +257,14 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                           </span>
                           {isMe && (
                             <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.2 rounded-md font-bold shrink-0">
-                              את
+                              {isBoys ? 'אתה' : 'את'}
                             </span>
                           )}
                         </div>
                         <span className="text-xs text-slate-500 font-medium block truncate">
-                          {student.completedToday ? 'סיימה ללמוד היום ✨' : 'טרם השלימה להיום'}
+                          {student.completedToday
+                            ? isBoys ? 'סיים ללמוד היום ✨' : 'סיימה ללמוד היום ✨'
+                            : isBoys ? 'טרם השלים להיום' : 'טרם השלימה להיום'}
                         </span>
                       </div>
                     </div>
@@ -285,7 +291,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
               <Trophy className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
-              <span>הכיתה המובילה באולפנה (מועמדת לפרס כיתתי)</span>
+              <span>הכיתה המובילה ב{genderText.institutionType === 'ישיבה' ? 'ישיבה' : 'אולפנה'} (מועמדת לפרס כיתתי)</span>
             </div>
 
             {leaderboardData.leadingClasses.length > 1 ? (
@@ -305,7 +311,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                           כיתה {lc.className}
                         </p>
                         <p className="text-xs text-amber-100">
-                          {lc.studentCount} תלמידות • שכבת {lc.grade}'
+                          {lc.studentCount} {genderText.students} • שכבת {lc.grade}'
                         </p>
                       </div>
                       <span className="bg-yellow-300 text-amber-950 font-black text-sm px-3 py-1 rounded-xl shadow-xs">
@@ -324,7 +330,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                   </h3>
                   <p className="text-amber-100 text-xs sm:text-sm font-semibold">
                     שכבת {leaderboardData.leadingClasses[0].grade}' •{' '}
-                    {leaderboardData.leadingClasses[0].studentCount} תלמידות
+                    {leaderboardData.leadingClasses[0].studentCount} {genderText.students}
                   </p>
                 </div>
                 <div className="w-full sm:w-auto bg-white text-amber-950 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl shadow-md font-black text-lg sm:text-xl font-['Heebo'] text-center">
@@ -339,7 +345,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
             <div className="border-b border-amber-100 pb-3">
               <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
                 <Medal className="w-5 h-5 text-amber-600 shrink-0" />
-                <span>טבלת הליגה הכללית של כל כיתות האולפנה</span>
+                <span>טבלת הליגה הכללית של כל כיתות ה{genderText.institutionType}</span>
               </h3>
             </div>
 
@@ -390,7 +396,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                           )}
                         </div>
                         <span className="text-xs text-slate-500 font-medium block truncate">
-                          {cls.studentCount} תלמידות • {cls.completedTodayCount} ענו היום
+                          {cls.studentCount} {genderText.students} • {cls.completedTodayCount} ענו היום
                         </span>
                       </div>
                     </div>
@@ -417,7 +423,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
           <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-500 rounded-3xl p-4 sm:p-6 text-white shadow-lg border border-yellow-300/40 relative overflow-hidden">
             <div className="flex items-center gap-2 text-xs font-extrabold text-amber-100 uppercase tracking-wider mb-2">
               <GraduationCap className="w-4 h-4 text-yellow-200 animate-bounce shrink-0" />
-              <span>השכבה המובילה באולפנה (מועמדת לפרס שכבתי)</span>
+              <span>השכבה המובילה ב{genderText.institutionType === 'ישיבה' ? 'ישיבה' : 'אולפנה'} (מועמדת לפרס שכבתי)</span>
             </div>
 
             {leaderboardData.leadingGrades.length > 1 ? (
@@ -437,7 +443,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                           שכבת {lg.grade}'
                         </p>
                         <p className="text-xs text-amber-100">
-                          {lg.studentCount} תלמידות בשכבה
+                          {lg.studentCount} {genderText.students} בשכבה
                         </p>
                       </div>
                       <span className="bg-yellow-300 text-amber-950 font-black text-sm px-3 py-1 rounded-xl shadow-xs">
@@ -455,7 +461,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                     שכבת {leaderboardData.leadingGrades[0].grade}'
                   </h3>
                   <p className="text-amber-100 text-xs sm:text-sm font-semibold">
-                    {leaderboardData.leadingGrades[0].studentCount} תלמידות
+                    {leaderboardData.leadingGrades[0].studentCount} {genderText.students}
                   </p>
                 </div>
                 <div className="w-full sm:w-auto bg-white text-amber-950 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl shadow-md font-black text-lg sm:text-xl font-['Heebo'] text-center">
@@ -521,7 +527,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                         }`}
                         style={{ width: `${Math.max(12, barWidthPercent)}%` }}
                       >
-                        {gItem.studentCount} תלמידות
+                        {gItem.studentCount} {genderText.students}
                       </div>
                     </div>
                   </div>

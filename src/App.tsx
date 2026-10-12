@@ -35,8 +35,10 @@ import {
   getTodayInJerusalem,
   uniqueQuizzesByDate,
 } from './lib/quizSchedule';
+import { useTenant } from './context/SchoolContext';
 
 export default function App() {
+  const { currentSchool, currentSchoolId, setSchoolId, genderText } = useTenant();
   const [students, setStudents] = useState<Student[]>([]);
   const [halachot, setHalachot] = useState<DailyHalacha[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
@@ -96,10 +98,13 @@ export default function App() {
     });
   }, [currentStudentId]);
 
-  const loadData = async (targetDate: string = selectedDate) => {
+  const loadData = async (
+    targetDate: string = selectedDate,
+    targetSchoolId: string = currentSchoolId
+  ) => {
     setIsHalachotLoading(true);
     setHalachotLoadError(null);
-    const studentsLoad = fetchStudents()
+    const studentsLoad = fetchStudents(targetSchoolId)
       .then((loadedStudents) => {
         setStudents(loadedStudents);
         setStudentsLoadError(null);
@@ -109,7 +114,7 @@ export default function App() {
         setStudentsLoadError(
           error instanceof Error
             ? error.message
-            : 'לא ניתן לטעון את רשימת התלמידות'
+            : `לא ניתן לטעון את רשימת ה${genderText.students}`
         );
       });
     const isAdmin = currentStudentId === 'admin';
@@ -137,8 +142,8 @@ export default function App() {
       .finally(() => setIsHalachotLoading(false));
 
     void Promise.allSettled([
-      fetchLeaderboardApi(targetDate),
-      fetchPrizesApi(),
+      fetchLeaderboardApi(targetDate, targetSchoolId),
+      fetchPrizesApi(targetSchoolId),
     ]).then(([leaderboardResult, prizesResult]) => {
       if (leaderboardResult.status === 'fulfilled') {
         setLeaderboardData(leaderboardResult.value);
@@ -197,6 +202,9 @@ export default function App() {
             session.student?.status === 'approved'
           ) {
             resolvedAuthUid.current = user.uid;
+            if (session.student.schoolId && session.student.schoolId !== currentSchoolId) {
+              setSchoolId(session.student.schoolId);
+            }
             setStudents((currentStudents) => [
               ...currentStudents.filter((student) => student.id !== session.student!.id),
               session.student!,
@@ -227,7 +235,7 @@ export default function App() {
       isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [currentSchoolId, setSchoolId]);
 
   const isInitialLeaderboardMount = useRef(true);
 
@@ -236,8 +244,8 @@ export default function App() {
     if (!currentStudentId) {
       return;
     }
-    void loadData(selectedDate);
-  }, [currentStudentId, isAuthReady]);
+    void loadData(selectedDate, currentSchoolId);
+  }, [currentStudentId, isAuthReady, currentSchoolId]);
 
   useEffect(() => {
     if (isInitialLeaderboardMount.current) {
@@ -245,10 +253,10 @@ export default function App() {
       return;
     }
     if (!isAuthReady || !currentStudentId) return;
-    void fetchLeaderboardApi(selectedDate)
+    void fetchLeaderboardApi(selectedDate, currentSchoolId)
       .then((data) => setLeaderboardData(data))
       .catch((error: unknown) => console.error('[Data] Could not load the leaderboard:', error));
-  }, [selectedDate]);
+  }, [selectedDate, currentSchoolId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -411,7 +419,7 @@ export default function App() {
 
         {activeTab === 'register' && (
           <RegisterPage
-            onRegistrationSuccess={loadData}
+            onRegistrationSuccess={() => void loadData(selectedDate, currentSchoolId)}
             onGoToStudy={() => setActiveTab('study')}
             students={students}
           />
@@ -430,7 +438,7 @@ export default function App() {
               halachot={halachot}
               prizeReports={prizeReports}
               studentsLoadError={studentsLoadError}
-              onRefreshData={loadData}
+              onRefreshData={() => void loadData(selectedDate, currentSchoolId)}
               onManagerQuiz={handleManagerQuiz}
               onDailyDedicationChange={setDailyQuizDedication}
             />
@@ -441,7 +449,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-amber-200/60 py-6 px-4 text-center text-xs text-amber-900/80 font-medium mb-16 md:mb-0">
         <p className="max-w-xl mx-auto leading-relaxed">
-          מערכת "חידון הלכה יומית" לאולפנה • תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א • מוקדש להגדלת תורה ולהאדרתה
+          מערכת "חידון הלכה יומית" {genderText.institutionType === 'אולפנה' ? 'לאולפנה' : 'לישיבה'} • {currentSchool.name} • תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א • מוקדש להגדלת תורה ולהאדרתה
         </p>
       </footer>
 

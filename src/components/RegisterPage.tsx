@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight, Key, Check } from 'lucide-react';
 import { GradeType, Student } from '../types';
 import { registerStudentApi, validateInvitationCodeApi } from '../lib/api';
+import { useTenant } from '../context/SchoolContext';
 
 interface RegisterPageProps {
   onRegistrationSuccess: () => void;
@@ -14,9 +15,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   onGoToStudy,
   students,
 }) => {
+  const { currentSchool, currentSchoolId, genderText } = useTenant();
   const [fullName, setFullName] = useState('');
   const [grade, setGrade] = useState<GradeType>('ט');
-  const [className, setClassName] = useState("ט'1");
+  const [className, setClassName] = useState(currentSchool.classes?.[0] || "ט'1");
   const [username, setUsername] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [invitationValidInfo, setInvitationValidInfo] = useState<{
@@ -47,7 +49,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       return;
     }
     try {
-      const res = await validateInvitationCodeApi(code.trim());
+      const res = await validateInvitationCodeApi(code.trim(), currentSchoolId);
       if (res.valid && res.invitation) {
         setInvitationValidInfo({
           valid: true,
@@ -102,6 +104,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         className: className.trim(),
         username: username.trim(),
         invitationCode: invitationCode.trim() || undefined,
+        schoolId: currentSchoolId,
       });
 
       setRegisteredStudent(res.student);
@@ -128,17 +131,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       const status = found.status || 'approved';
       let msg = '';
       if (status === 'approved') {
-        msg = 'ההרשמה שלך אושרה בהצלחה! תוכל להיכנס ולפתור חידונים.';
+        msg = genderText.student === 'תלמיד'
+          ? 'ההרשמה שלך אושרה בהצלחה! תוכל להיכנס ולפתור חידונים.'
+          : 'ההרשמה שלך אושרה בהצלחה! תוכלי להיכנס ולפתור חידונים.';
       } else if (status === 'pending') {
-        msg = 'בקשת ההרשמה שלך התקבלה וממתינה לאישור הנהלת האולפנה.';
+        msg = `בקשת ההרשמה שלך התקבלה וממתינה לאישור ${genderText.institutionManagement}.`;
       } else {
-        msg = 'בקשת ההרשמה לא אושרה. פנה לרכזת ההלכה באולפנה.';
+        msg = `בקשת ההרשמה לא אושרה. פנה/י ל${genderText.institutionCoordinator}.`;
       }
       setCheckResult({ found: true, student: found, message: msg });
     } else {
       setCheckResult({
         found: false,
-        message: 'לא נמצאה תלמידה בשם משתמש זה. וודא שהקלדת נכון או הירשם מחדש.',
+        message: `לא נמצא${genderText.student === 'תלמיד' ? '' : 'ה'} ${genderText.student} בשם משתמש זה. וודא${genderText.student === 'תלמיד' ? '' : 'י'} שהקלדת נכון או הירשם/הירשמי מחדש.`,
       });
     }
   };
@@ -154,12 +159,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <span>הרשמה למבצע הלכה יומית</span>
           </div>
           <h2 className="text-xl sm:text-3xl font-extrabold font-['Heebo']">
-            הרשמת תלמידה חדשה
+            {genderText.newStudentRegistration}
           </h2>
           <p className="text-amber-100 text-xs sm:text-sm max-w-xl font-medium leading-relaxed">
-            ברוכות הבאות למבצע הלימוד היומי מתוך סדרת "אהלי הלכה"!
+            {genderText.welcomePlural} למבצע הלימוד היומי מתוך סדרת "אהלי הלכה"!
             <br />
-            לאחר הרשמתך, בקשת ההרשמה תועבר לאישור צוות ההנהלה. לאחר האישור תוכלו לצבור נקודות ולזכות בפרסים!
+            לאחר הרשמתך, בקשת ההרשמה תועבר לאישור {genderText.institutionManagement}. לאחר האישור תוכלו לצבור נקודות ולזכות בפרסים!
           </p>
           <p className="inline-flex rounded-full border border-amber-900/20 bg-amber-900/15 px-3 py-1.5 text-xs sm:text-sm font-bold text-amber-950">
             הלימוד מוקדש לעילוי נשמת מעוז פניגשטיין הי״ד
@@ -224,8 +229,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               : 'bg-amber-100/60 border-amber-200 text-amber-900'
           }`}>
             {isAutoApprovedResult
-              ? '🎉 איזה יופי! ההרשמה שלך אושרה מידית. כעת תוכל להיכנס ולפתור את החידון היומי ולהוביל את הלוח!'
-                : '💡 לאחר שמנהלת האולפנה תאשר את הבקשה, תוכלי להתחבר באמצעות חשבון Google הרשום במערכת.'}
+              ? `🎉 איזה יופי! ההרשמה שלך אושרה מידית. כעת ${genderText.student === 'תלמיד' ? 'תוכל' : 'תוכלי'} להיכנס ולפתור את החידון היומי ולהוביל את הלוח!`
+              : `💡 לאחר ש${genderText.institutionManagement} תאשר את הבקשה, ${genderText.student === 'תלמיד' ? 'תוכל' : 'תוכלי'} להתחבר באמצעות חשבון Google הרשום במערכת.`}
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3 pt-2">
@@ -239,7 +244,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               }}
               className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
             >
-              הרשמת תלמידה נוספת
+              {genderText.registerAnotherStudent}
             </button>
 
             <button
@@ -292,12 +297,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
               <div>
                 <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
-                  שם מלא של התלמידה <span className="text-rose-500">*</span>
+                  שם מלא של ה{genderText.student} <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="לדוגמה: תמר שפירא"
+                  placeholder={genderText.student === 'תלמיד' ? 'לדוגמה: יונתן שפירא' : 'לדוגמה: תמר שפירא'}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
@@ -348,7 +353,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="לדוגמה: tamar_s"
+                    placeholder={genderText.student === 'תלמיד' ? 'לדוגמה: yonatan_s' : 'לדוגמה: tamar_s'}
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
@@ -373,7 +378,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 ) : (
                   <>
                     <UserPlus className="w-5 h-5" />
-                    <span>שליחת בקשת הרשמה להנהלה</span>
+                    <span>שליחת בקשת הרשמה ל{genderText.institutionManagement}</span>
                   </>
                 )}
               </button>
@@ -388,7 +393,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 <span>בדיקת סטטוס הרשמה</span>
               </div>
               <p className="text-xs text-amber-900/80 leading-relaxed font-medium">
-                כבר נרשמת? הזיני את שם המשתמש שלך כדי לבדוק האם בקשתך כבר אושרה על ידי המנהל:
+                כבר נרשמת? {genderText.student === 'תלמיד' ? 'הזן' : 'הזיני'} את שם המשתמש שלך כדי לבדוק האם בקשתך כבר אושרה על ידי {genderText.institutionManagement}:
               </p>
 
               <form onSubmit={handleCheckStatus} className="space-y-3">

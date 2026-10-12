@@ -110,7 +110,9 @@ service cloud.firestore {
         request.resource.data.className == student.className &&
         request.resource.data.grade == student.grade &&
         request.resource.data.points == student.points &&
-        request.resource.data.completedDates == student.completedDates;
+        request.resource.data.completedDates == student.completedDates &&
+        (!('schoolId' in request.resource.data) ||
+          (('schoolId' in student) && request.resource.data.schoolId == student.schoolId));
     }
 
     function isValidPublicStudentSummary(data) {
@@ -118,14 +120,15 @@ service cloud.firestore {
           'id', 'fullName', 'className', 'grade', 'points', 'completedDates'
         ]) &&
         data.keys().hasOnly([
-          'id', 'fullName', 'className', 'grade', 'points', 'completedDates'
+          'id', 'fullName', 'className', 'grade', 'points', 'completedDates', 'schoolId'
         ]) &&
         data.id is string && data.id.size() > 0 && data.id.size() <= 150 &&
         data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 120 &&
         data.className is string && data.className.size() > 0 && data.className.size() <= 40 &&
         data.grade in ['ט', 'י', 'יא', 'יב'] &&
         data.points is int && data.points >= 0 && data.points <= 1000000 &&
-        data.completedDates is list && data.completedDates.size() <= 400;
+        data.completedDates is list && data.completedDates.size() <= 400 &&
+        (!('schoolId' in data) || (data.schoolId is string && data.schoolId.size() <= 64));
     }
 
     function isValidStudentDocument(data) {
@@ -136,7 +139,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'fullName', 'className', 'grade', 'username', 'email',
           'password', 'points', 'completedDates', 'submissions', 'status',
-          'registeredAt', 'invitationCode', 'managerParticipation'
+          'registeredAt', 'invitationCode', 'managerParticipation', 'schoolId'
         ]) &&
         data.id is string && data.id.size() > 0 && data.id.size() <= 150 &&
         data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 120 &&
@@ -151,7 +154,8 @@ service cloud.firestore {
         (!('status' in data) || data.status in ['approved', 'pending', 'rejected']) &&
         (!('registeredAt' in data) || (data.registeredAt is string && data.registeredAt.size() <= 40)) &&
         (!('invitationCode' in data) || (data.invitationCode is string && data.invitationCode.size() <= 64)) &&
-        (!('managerParticipation' in data) || data.managerParticipation == true);
+        (!('managerParticipation' in data) || data.managerParticipation == true) &&
+        (!('schoolId' in data) || (data.schoolId is string && data.schoolId.size() <= 64));
     }
 
     function isValidPendingRegistrationForPath(data, studentId) {
@@ -318,6 +322,12 @@ service cloud.firestore {
     
     // 4. Settings: Publicly readable, Admin-only write
     match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Schools: Publicly readable for school picker, Admin-only write
+    match /schools/{schoolId} {
       allow read: if true;
       allow write: if isAdmin();
     }

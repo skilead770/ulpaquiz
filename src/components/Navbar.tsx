@@ -17,6 +17,7 @@ import {
 import { Student } from '../types';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { ULPANA_LOGO_URL } from '../assets/logo';
+import { useTenant } from '../context/SchoolContext';
 
 interface NavbarProps {
   students: Student[];
@@ -39,6 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectUser,
   dailyDedication,
 }) => {
+  const { currentSchool, genderText } = useTenant();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
@@ -81,8 +83,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <div className="h-10 sm:h-12 w-auto max-w-[110px] sm:max-w-[140px] shrink-0 flex items-center justify-center p-1 bg-white/90 rounded-xl border border-amber-200/80 shadow-xs">
                 <img
-                  src={ULPANA_LOGO_URL}
-                  alt="לוגו אולפנא"
+                  src={currentSchool.branding.logoUrl || ULPANA_LOGO_URL}
+                  alt={`לוגו ${currentSchool.name}`}
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
                   className="max-h-8 sm:max-h-10 w-auto object-contain"
@@ -107,7 +109,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-amber-800/90 font-medium truncate">
-                  <span className="font-bold text-amber-900">אולפנת אבן שמואל</span>
+                  <span className="font-bold text-amber-900">{currentSchool.name}</span>
                   <span className="hidden sm:inline"> • לימוד יומי מתוך סדרת "אהלי הלכה"</span>
                 </p>
               </div>
@@ -239,7 +241,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       >
                         <div className="flex items-center gap-2">
                           <ShieldCheck className="w-4 h-4 text-amber-700" />
-                          <span className="font-bold">ממשק צוות ניהול האולפנה</span>
+                          <span className="font-bold">ממשק צוות ניהול {genderText.institutionType === 'ישיבה' ? 'הישיבה' : 'האולפנה'}</span>
                         </div>
                         <CheckCircle2 className="w-4 h-4 text-amber-700" />
                       </button>
