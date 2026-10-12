@@ -9,14 +9,17 @@ import {
   ArrowRight,
   ArrowLeft,
   Crown,
+  Award,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DailyHalacha, Student, PrizeMilestone } from '../types';
+import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { submitQuizApi } from '../lib/api';
 
 interface QuizModalProps {
   student: Student;
   halacha: DailyHalacha;
+  prizeMilestones?: PrizeMilestone[];
   onClose: () => void;
   onQuizSubmitted: (
     updatedStudent: Student,
@@ -27,6 +30,7 @@ interface QuizModalProps {
 export const QuizModal: React.FC<QuizModalProps> = ({
   student,
   halacha,
+  prizeMilestones = [],
   onClose,
   onQuizSubmitted,
 }) => {
@@ -40,9 +44,12 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   const [quizResult, setQuizResult] = useState<{
     score: number;
     earnedPoints: number;
+    previousPoints: number;
+    newPoints: number;
     isPerfect: boolean;
     message: string;
     confirmedStudy: boolean;
+    milestonesReached: PrizeMilestone[];
   } | null>(null);
 
   const questions = halacha.questions;
@@ -59,6 +66,21 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   const currentQuestion = questions[currentQuestionIndex];
   const currentOptions = shuffledOptionsByQuestion[currentQuestionIndex];
   const allAnswered = questions.every((q) => selectedAnswers[q.id] !== undefined);
+
+  // Compute next milestone and progress based on manager's configured prizeMilestones
+  const activeMilestones = prizeMilestones.length > 0 ? prizeMilestones : DEFAULT_PRIZE_MILESTONES;
+  const currentTotalPoints = quizResult ? quizResult.newPoints : student.points;
+  const nextMilestone =
+    activeMilestones.find((m) => m.points > currentTotalPoints) ||
+    activeMilestones[activeMilestones.length - 1];
+  const pointsToNext = Math.max(0, nextMilestone.points - currentTotalPoints);
+  const prevMilestonePoints =
+    activeMilestones.filter((m) => m.points <= currentTotalPoints).pop()?.points || 0;
+  const milestoneRange = Math.max(1, nextMilestone.points - prevMilestonePoints);
+  const progressPercent = Math.min(
+    100,
+    Math.round(((currentTotalPoints - prevMilestonePoints) / milestoneRange) * 100)
+  );
 
   const handleSelectOption = (questionId: string, optionIndex: number) => {
     setSelectedAnswers((prev) => ({
@@ -79,25 +101,29 @@ export const QuizModal: React.FC<QuizModalProps> = ({
     try {
       const res = await submitQuizApi(student.id, halacha.date, selectedAnswers, confirmedStudy);
 
-      if (res.isPerfect) {
-        // Trigger festive confetti for 4/4 score!
+      // Trigger festive celebratory confetti
+      const hasMilestone = res.milestonesReached && res.milestonesReached.length > 0;
+      if (res.isPerfect || hasMilestone || res.earnedPoints > 0) {
         confetti({
-          particleCount: 100,
-          spread: 70,
+          particleCount: res.isPerfect || hasMilestone ? 120 : 80,
+          spread: 75,
           origin: { y: 0.6 },
-          colors: ['#f59e0b', '#d97706', '#10b981', '#3b82f6', '#ec4899'],
+          colors: ['#f59e0b', '#d97706', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6'],
         });
       }
 
       setQuizResult({
         score: res.score,
         earnedPoints: res.earnedPoints,
+        previousPoints: res.previousPoints,
+        newPoints: res.newPoints,
         isPerfect: res.isPerfect,
         message: res.message,
         confirmedStudy,
+        milestonesReached: res.milestonesReached || [],
       });
 
-      // Notify parent to refresh student state & trigger potential milestone alerts
+      // Notify parent to refresh student state
       onQuizSubmitted(res.student, res.milestonesReached || []);
     } catch (e: any) {
       console.error(e);
@@ -298,51 +324,69 @@ export const QuizModal: React.FC<QuizModalProps> = ({
           </div>
         ) : (
           /* Quiz Results View (Immediate Feedback) */
-          <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 text-center animate-in zoom-in-95 overflow-y-auto">
+          <div className="p-4 sm:p-7 space-y-4 sm:space-y-5 text-center animate-in zoom-in-95 overflow-y-auto">
+            {/* Top Celebration Icon */}
             <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-white shadow-lg shadow-amber-500/30 mx-auto">
-              {quizResult.isPerfect ? (
+              {quizResult.milestonesReached.length > 0 ? (
+                <Trophy className="w-8 h-8 sm:w-10 sm:h-10 animate-bounce" />
+              ) : quizResult.isPerfect ? (
                 <Crown className="w-8 h-8 sm:w-10 sm:h-10 animate-bounce" />
               ) : (
                 <Sparkles className="w-8 h-8 sm:w-10 sm:h-10" />
               )}
             </div>
 
+            {/* Badge & Title */}
             <div className="space-y-1.5">
               <span className="inline-block bg-amber-100 text-amber-900 text-xs font-bold px-3 py-1 rounded-full">
-                {quizResult.isPerfect ? '🌟 מצטיינת יומית (4/4)' : '👏 השתתפות מבורכת'}
+                {quizResult.milestonesReached.length > 0
+                  ? '🏆 הגעת ליעד פרס חדש!'
+                  : quizResult.isPerfect
+                  ? '🌟 מצטיינת יומית (4/4)'
+                  : '👏 השתתפות מבורכת'}
               </span>
               <h3 className="text-xl sm:text-2xl font-extrabold text-amber-950 font-['Heebo']">
-                {quizResult.isPerfect ? 'כל הכבוד! ענית נכון על כל השאלות!' : 'סיימת בהצלחה את החידון היומי!'}
+                {quizResult.milestonesReached.length > 0
+                  ? `כל הכבוד! הגעת ליעד ${quizResult.milestonesReached[0].title}!`
+                  : quizResult.isPerfect
+                  ? 'כל הכבוד! ענית נכון על כל השאלות!'
+                  : 'סיימת בהצלחה את החידון היומי!'}
               </h3>
-              <p className="text-amber-900 font-bold text-sm sm:text-base max-w-md mx-auto leading-relaxed">
+              <p className="text-amber-900 font-bold text-xs sm:text-sm max-w-md mx-auto leading-relaxed">
                 {quizResult.message}
               </p>
             </div>
 
-            {/* Score Breakout */}
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 grid grid-cols-2 gap-3 sm:gap-4 text-center">
-              <div>
-                <p className="text-xs text-amber-800 font-medium">ציון בחידון</p>
-                <p className="text-xl sm:text-2xl font-black text-amber-950 font-['Heebo']">
+            {/* Summary Score & Points Grid (3 columns: Quiz Score, Added Today, Total Accumulated Sum) */}
+            <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3 sm:p-4 grid grid-cols-3 gap-2 sm:gap-3 text-center">
+              <div className="bg-white/80 rounded-xl p-2 sm:p-2.5 border border-amber-100 shadow-2xs">
+                <p className="text-[11px] sm:text-xs text-amber-800 font-bold">ציון בחידון</p>
+                <p className="text-lg sm:text-2xl font-black text-amber-950 font-['Heebo']">
                   {quizResult.score} / 4
                 </p>
               </div>
-              <div>
-                <p className="text-xs text-amber-800 font-medium">נקודות שהתווספו</p>
-                <p className="text-xl sm:text-2xl font-black text-emerald-600 font-['Heebo']">
-                  +{quizResult.earnedPoints} נק'
+              <div className="bg-white/80 rounded-xl p-2 sm:p-2.5 border border-amber-100 shadow-2xs">
+                <p className="text-[11px] sm:text-xs text-amber-800 font-bold">נוספו היום</p>
+                <p className="text-lg sm:text-2xl font-black text-emerald-600 font-['Heebo']">
+                  +{quizResult.earnedPoints} <span className="text-xs font-bold text-emerald-700">נק'</span>
+                </p>
+              </div>
+              <div className="bg-amber-100/90 rounded-xl p-2 sm:p-2.5 border border-amber-300 shadow-2xs">
+                <p className="text-[11px] sm:text-xs text-amber-900 font-extrabold">סך כל נקודותייך</p>
+                <p className="text-lg sm:text-2xl font-black text-amber-950 font-['Heebo']">
+                  {quizResult.newPoints} <span className="text-xs font-bold text-amber-900">נק'</span>
                 </p>
               </div>
             </div>
 
-            {/* Points Breakdown List */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 sm:p-4 text-right text-xs space-y-1.5 font-medium text-slate-700">
-              <div className="flex justify-between items-center text-slate-800 font-bold border-b border-slate-200 pb-1.5 mb-1.5">
-                <span>פירוט הנקודות שצברת:</span>
-                <span>+{quizResult.earnedPoints} נק'</span>
+            {/* Points Calculation Breakdown List */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 sm:p-3.5 text-right text-xs space-y-1.5 font-medium text-slate-700">
+              <div className="flex justify-between items-center text-slate-800 font-extrabold border-b border-slate-200 pb-1.5 mb-1.5">
+                <span>פירוט חישוב הנקודות:</span>
+                <span>+{quizResult.earnedPoints} נק' לחידון זה</span>
               </div>
               <div className="flex justify-between items-center">
-                <span>אישור לימוד ("קראתי ולמדתי / מוכנה לחידון"):</span>
+                <span>קריאת ולימוד ההלכה ("קראתי ולמדתי / מוכנה לחידון"):</span>
                 <span className={quizResult.confirmedStudy ? 'text-emerald-700 font-bold' : 'text-slate-400'}>
                   {quizResult.confirmedStudy ? '+5 נק\'' : '0 נק\''}
                 </span>
@@ -351,7 +395,63 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 <span>תשובות נכונות בחידון ({quizResult.score}/4):</span>
                 <span className="text-emerald-700 font-bold">+{quizResult.score * 5} נק'</span>
               </div>
+              <div className="flex justify-between items-center pt-1 border-t border-slate-200 text-slate-900 font-bold">
+                <span>מאזן נקודות קודם:</span>
+                <span>{quizResult.previousPoints} נק'</span>
+              </div>
+              <div className="flex justify-between items-center text-amber-950 font-black">
+                <span>סך נקודות מצטבר חדש:</span>
+                <span className="text-amber-800 text-sm">{quizResult.newPoints} נק'</span>
+              </div>
             </div>
+
+            {/* Prize Announcement Aligned with Manager Inputs */}
+            {quizResult.milestonesReached.length > 0 ? (
+              <div className="bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 border-2 border-amber-400 rounded-2xl p-3.5 sm:p-4 text-right space-y-2 shadow-xs animate-in zoom-in-95">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Trophy className="w-5 h-5 animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="bg-amber-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">
+                      הגעת ליעד פרס אישי!
+                    </span>
+                    <h4 className="text-sm sm:text-base font-extrabold text-amber-950 font-['Heebo']">
+                      {quizResult.milestonesReached[0].title} ({quizResult.milestonesReached[0].points} נקודות)
+                    </h4>
+                  </div>
+                </div>
+                <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 text-xs sm:text-sm font-bold text-amber-950">
+                  🎁 הפרס שלך: {quizResult.milestonesReached[0].rewardDescription}
+                </div>
+                <p className="text-[11px] text-amber-800 font-semibold">
+                  הפרס האישי מחכה לך בחדר המורות! כל הכבוד על ההתמדה והלימוד! ✨
+                </p>
+              </div>
+            ) : nextMilestone ? (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200/90 rounded-2xl p-3.5 sm:p-4 text-right space-y-2 shadow-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Award className="w-5 h-5 text-amber-600 shrink-0" />
+                    <span className="text-xs sm:text-sm font-bold text-amber-950">
+                      יעד הפרס הבא: {nextMilestone.title} ({nextMilestone.points} נק')
+                    </span>
+                  </div>
+                  <span className="text-[11px] sm:text-xs font-black text-amber-900 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg shrink-0">
+                    {pointsToNext > 0 ? `חסרות עוד ${pointsToNext} נק'` : 'היעד הושלם!'}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-900 font-medium">
+                  🎁 הפרס שמחכה לך: {nextMilestone.rewardDescription}
+                </p>
+                <div className="w-full bg-amber-200/60 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <p className="text-xs text-amber-800/90 font-semibold">
               ✨ הענקת כעת +{quizResult.earnedPoints} נקודות לך, לכיתה שלך ולשכבה שלך במאזן האולפני!

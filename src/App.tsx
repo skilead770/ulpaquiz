@@ -25,6 +25,7 @@ import { Leaderboards } from './components/Leaderboards';
 import { AdminPanel } from './components/AdminPanel';
 import { RegisterPage } from './components/RegisterPage';
 import { EntryScreen } from './components/EntryScreen';
+import { DEFAULT_PRIZE_MILESTONES } from './data/seedData';
 import {
   getStudentQuizDateWindow,
   getTodayInJerusalem,
@@ -36,6 +37,7 @@ export default function App() {
   const [halachot, setHalachot] = useState<DailyHalacha[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [prizeReports, setPrizeReports] = useState<PrizeReportItem[]>([]);
+  const [prizeMilestones, setPrizeMilestones] = useState<PrizeMilestone[]>(DEFAULT_PRIZE_MILESTONES);
   const [dailyQuizDedication, setDailyQuizDedication] = useState('');
   const [studentsLoadError, setStudentsLoadError] = useState<string | null>(null);
   const [isHalachotLoading, setIsHalachotLoading] = useState(false);
@@ -54,6 +56,7 @@ export default function App() {
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [managerParticipant, setManagerParticipant] = useState<Student | null>(null);
   const [activeMilestoneAlert, setActiveMilestoneAlert] = useState<PrizeMilestone | null>(null);
+  const [pendingMilestoneAlert, setPendingMilestoneAlert] = useState<PrizeMilestone | null>(null);
 
   useEffect(() => subscribeToDailyQuizDedication(
     setDailyQuizDedication,
@@ -140,6 +143,9 @@ export default function App() {
       }
       if (prizesResult.status === 'fulfilled') {
         setPrizeReports(Array.isArray(prizesResult.value?.reports) ? prizesResult.value.reports : []);
+        if (Array.isArray(prizesResult.value?.milestones) && prizesResult.value.milestones.length > 0) {
+          setPrizeMilestones(prizesResult.value.milestones);
+        }
       } else {
         console.error('[Data] Could not load prize reports:', prizesResult.reason);
       }
@@ -284,7 +290,7 @@ export default function App() {
     }
     await loadData();
     if (milestones && milestones.length > 0) {
-      setActiveMilestoneAlert(milestones[0]);
+      setPendingMilestoneAlert(milestones[0]);
     }
   };
 
@@ -362,6 +368,7 @@ export default function App() {
             selectedDate={selectedDate}
             todayDate={todayDate}
             availableQuizDates={availableQuizDates}
+            prizeMilestones={prizeMilestones}
             onSelectDate={(d) => setSelectedDate(d)}
             onStartQuiz={() => {
               if (
@@ -381,6 +388,7 @@ export default function App() {
             currentStudent={currentStudent}
             leaderboardData={leaderboardData}
             selectedDate={selectedDate}
+            prizeMilestones={prizeMilestones}
           />
         )}
 
@@ -421,7 +429,14 @@ export default function App() {
         <QuizModal
           student={currentStudent || managerParticipant!}
           halacha={selectedHalacha}
-          onClose={() => setShowQuizModal(false)}
+          prizeMilestones={prizeMilestones}
+          onClose={() => {
+            setShowQuizModal(false);
+            if (pendingMilestoneAlert) {
+              setActiveMilestoneAlert(pendingMilestoneAlert);
+              setPendingMilestoneAlert(null);
+            }
+          }}
           onQuizSubmitted={handleQuizSubmitted}
         />
       )}

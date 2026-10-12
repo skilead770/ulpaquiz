@@ -481,8 +481,9 @@ export async function submitQuizApi(
     }
     await batch.commit();
 
+    const currentMilestones = await getPrizeMilestones();
     const milestonesReached: PrizeMilestone[] = [];
-    DEFAULT_PRIZE_MILESTONES.forEach((m) => {
+    currentMilestones.forEach((m) => {
       if (previousPoints < m.points && newPoints >= m.points) {
         milestonesReached.push(m);
       }

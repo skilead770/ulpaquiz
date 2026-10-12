@@ -48,15 +48,11 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
           </span>
 
           <h3 className="text-xl sm:text-2xl font-extrabold text-amber-950 font-['Heebo']">
-            {milestone.points === 10
-              ? 'כל הכבוד! הגעת ל-10 נקודות, המשיכי כך!'
-              : milestone.points === 50
-              ? 'ממש אלופה! 50 נקודות של לימוד והתמדה!'
-              : `אלופה! הגעת ליעד של ${milestone.points} נקודות!`}
+            כל הכבוד! הגעת ליעד {milestone.title} ({milestone.points} נקודות)!
           </h3>
 
           <p className="text-amber-900 text-xs sm:text-sm font-semibold leading-relaxed">
-            {milestone.title}: {milestone.rewardDescription}
+            🎁 פרס: {milestone.rewardDescription}
           </p>
         </div>
 
