@@ -32,12 +32,12 @@ export default defineConfig(() => {
               return 'data-tools';
             }
 
-            if (id.includes('react') || id.includes('scheduler')) {
-              return 'react-vendor';
-            }
-
             if (id.includes('lucide-react') || id.includes('motion')) {
               return 'ui-vendor';
+            }
+
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return 'react-vendor';
             }
           },
         },

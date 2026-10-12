@@ -22,7 +22,11 @@ import { Dashboard } from './components/Dashboard';
 import { QuizModal } from './components/QuizModal';
 import { MilestoneModal } from './components/MilestoneModal';
 import { Leaderboards } from './components/Leaderboards';
-import { AdminPanel } from './components/AdminPanel';
+const AdminPanel = React.lazy(() =>
+  import('./components/AdminPanel').then((module) => ({
+    default: module.AdminPanel,
+  }))
+);
 import { RegisterPage } from './components/RegisterPage';
 import { EntryScreen } from './components/EntryScreen';
 import { DEFAULT_PRIZE_MILESTONES } from './data/seedData';
@@ -92,7 +96,7 @@ export default function App() {
     });
   }, [currentStudentId]);
 
-  const loadData = async () => {
+  const loadData = async (targetDate: string = selectedDate) => {
     setIsHalachotLoading(true);
     setHalachotLoadError(null);
     const studentsLoad = fetchStudents()
@@ -133,7 +137,7 @@ export default function App() {
       .finally(() => setIsHalachotLoading(false));
 
     void Promise.allSettled([
-      fetchLeaderboardApi(selectedDate),
+      fetchLeaderboardApi(targetDate),
       fetchPrizesApi(),
     ]).then(([leaderboardResult, prizesResult]) => {
       if (leaderboardResult.status === 'fulfilled') {
@@ -225,13 +229,26 @@ export default function App() {
     };
   }, []);
 
+  const isInitialLeaderboardMount = useRef(true);
+
   useEffect(() => {
     if (!isAuthReady) return;
     if (!currentStudentId) {
       return;
     }
-    void loadData();
-  }, [currentStudentId, isAuthReady, selectedDate]);
+    void loadData(selectedDate);
+  }, [currentStudentId, isAuthReady]);
+
+  useEffect(() => {
+    if (isInitialLeaderboardMount.current) {
+      isInitialLeaderboardMount.current = false;
+      return;
+    }
+    if (!isAuthReady || !currentStudentId) return;
+    void fetchLeaderboardApi(selectedDate)
+      .then((data) => setLeaderboardData(data))
+      .catch((error: unknown) => console.error('[Data] Could not load the leaderboard:', error));
+  }, [selectedDate]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -401,15 +418,23 @@ export default function App() {
         )}
 
         {(activeTab === 'admin' || currentStudentId === 'admin') && (
-          <AdminPanel
-            students={students}
-            halachot={halachot}
-            prizeReports={prizeReports}
-            studentsLoadError={studentsLoadError}
-            onRefreshData={loadData}
-            onManagerQuiz={handleManagerQuiz}
-            onDailyDedicationChange={setDailyQuizDedication}
-          />
+          <React.Suspense
+            fallback={
+              <div className="bg-white p-8 rounded-3xl border border-amber-200 text-center text-amber-900 font-bold animate-pulse shadow-sm">
+                טוען לוח ניהול...
+              </div>
+            }
+          >
+            <AdminPanel
+              students={students}
+              halachot={halachot}
+              prizeReports={prizeReports}
+              studentsLoadError={studentsLoadError}
+              onRefreshData={loadData}
+              onManagerQuiz={handleManagerQuiz}
+              onDailyDedicationChange={setDailyQuizDedication}
+            />
+          </React.Suspense>
         )}
       </main>
 

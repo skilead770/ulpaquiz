@@ -111,6 +111,7 @@ async function writeStudentAndPublicSummary(student: Student): Promise<void> {
     batch.delete(publicRef);
   }
   await batch.commit();
+  invalidatePublicStudentSummariesCache();
 }
 
 export async function fetchAdvanceQuizDates(today: string): Promise<string[]> {
@@ -148,6 +149,7 @@ async function approveStudentAndPublicSummary(student: Student): Promise<void> {
     batch.set(doc(db, 'publicStudents', student.id), publicSummary);
   }
   await batch.commit();
+  invalidatePublicStudentSummariesCache();
 }
 
 async function syncPublicStudentSummaries(students: Student[]): Promise<void> {
@@ -173,25 +175,54 @@ async function syncPublicStudentSummaries(students: Student[]): Promise<void> {
     });
     await batch.commit();
   }
+  invalidatePublicStudentSummariesCache();
 }
 
-async function fetchPublicStudentSummaries(): Promise<PublicStudentSummary[]> {
-  let snapshot = await getDocs(collection(db, 'publicStudents'));
-  const firebaseUser = auth.currentUser;
-  const email = firebaseUser?.email?.trim().toLowerCase();
-  if (snapshot.empty && firebaseUser?.emailVerified && email) {
-    const managerSnapshot = await getDocs(
-      query(collection(db, 'managers'), where('email', '==', email))
-    );
-    if (!managerSnapshot.empty) {
-      const studentsSnapshot = await getDocs(collection(db, 'students'));
-      const students = studentsSnapshot.docs.map((studentDoc) => studentDoc.data() as Student);
-      await syncPublicStudentSummaries(students);
-      snapshot = await getDocs(collection(db, 'publicStudents'));
-    }
+let cachedPublicSummaries: { data: PublicStudentSummary[]; timestamp: number } | null = null;
+let inFlightPublicSummariesPromise: Promise<PublicStudentSummary[]> | null = null;
+const PUBLIC_SUMMARIES_CACHE_TTL_MS = 30_000;
+
+export function invalidatePublicStudentSummariesCache(): void {
+  cachedPublicSummaries = null;
+  inFlightPublicSummariesPromise = null;
+}
+
+async function fetchPublicStudentSummaries(forceRefresh: boolean = false): Promise<PublicStudentSummary[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedPublicSummaries && (now - cachedPublicSummaries.timestamp < PUBLIC_SUMMARIES_CACHE_TTL_MS)) {
+    return cachedPublicSummaries.data;
   }
 
-  return snapshot.docs.map((studentDoc) => studentDoc.data() as PublicStudentSummary);
+  if (!forceRefresh && inFlightPublicSummariesPromise) {
+    return inFlightPublicSummariesPromise;
+  }
+
+  inFlightPublicSummariesPromise = (async () => {
+    try {
+      let snapshot = await getDocs(collection(db, 'publicStudents'));
+      const firebaseUser = auth.currentUser;
+      const email = firebaseUser?.email?.trim().toLowerCase();
+      if (snapshot.empty && firebaseUser?.emailVerified && email) {
+        const managerSnapshot = await getDocs(
+          query(collection(db, 'managers'), where('email', '==', email))
+        );
+        if (!managerSnapshot.empty) {
+          const studentsSnapshot = await getDocs(collection(db, 'students'));
+          const students = studentsSnapshot.docs.map((studentDoc) => studentDoc.data() as Student);
+          await syncPublicStudentSummaries(students);
+          snapshot = await getDocs(collection(db, 'publicStudents'));
+        }
+      }
+
+      const data = snapshot.docs.map((studentDoc) => studentDoc.data() as PublicStudentSummary);
+      cachedPublicSummaries = { data, timestamp: Date.now() };
+      return data;
+    } finally {
+      inFlightPublicSummariesPromise = null;
+    }
+  })();
+
+  return inFlightPublicSummariesPromise;
 }
 
 async function getOrSeedFirestoreHalachot(): Promise<DailyHalacha[]> {
@@ -480,6 +511,7 @@ export async function submitQuizApi(
       batch.set(doc(db, 'publicStudents', student.id), publicSummary);
     }
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
 
     const currentMilestones = await getPrizeMilestones();
     const milestonesReached: PrizeMilestone[] = [];
@@ -622,20 +654,33 @@ export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData
   };
 }
 
-export async function getPrizeMilestones(): Promise<PrizeMilestone[]> {
+let cachedPrizeMilestones: PrizeMilestone[] | null = null;
+
+export function invalidatePrizeMilestonesCache(): void {
+  cachedPrizeMilestones = null;
+}
+
+export async function getPrizeMilestones(forceRefresh: boolean = false): Promise<PrizeMilestone[]> {
+  if (!forceRefresh && cachedPrizeMilestones) {
+    return cachedPrizeMilestones;
+  }
   try {
     const settingsSnap = await getDoc(doc(db, 'settings', 'prizeMilestones'));
     if (settingsSnap.exists()) {
       const data = settingsSnap.data() as { milestones?: PrizeMilestone[] };
       if (Array.isArray(data.milestones) && data.milestones.length > 0) {
-        return [...data.milestones].sort((a, b) => a.points - b.points);
+        const sorted = [...data.milestones].sort((a, b) => a.points - b.points);
+        cachedPrizeMilestones = sorted;
+        return sorted;
       }
     }
   } catch (err) {
     console.info('[Firestore] Direct prize milestone read failed, falling back to defaults:', err);
   }
 
-  return [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points);
+  const defaults = [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points);
+  cachedPrizeMilestones = defaults;
+  return defaults;
 }
 
 export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Promise<PrizeMilestone[]> {
@@ -654,6 +699,7 @@ export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Prom
     updatedAt: new Date().toISOString(),
   });
 
+  cachedPrizeMilestones = normalized;
   return normalized;
 }
 
@@ -946,6 +992,7 @@ export async function deleteStudentApi(id: string) {
     batch.delete(doc(db, 'students', id));
     batch.delete(doc(db, 'publicStudents', id));
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
     const allStudents = await fetchAllStudentRecords();
     return { success: true, students: allStudents };
   } catch (error) {
@@ -1444,6 +1491,7 @@ export async function rejectStudentApi(id: string) {
     batch.update(studentRef, { status: 'rejected' });
     batch.delete(doc(db, 'publicStudents', id));
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
     return { success: true };
   } catch (e) {
     firestoreError = e;
@@ -1457,6 +1505,7 @@ export async function rejectStudentApi(id: string) {
     });
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
+      invalidatePublicStudentSummariesCache();
       return await parseJsonResponse(res);
     }
     if (contentType.includes('application/json')) {
@@ -1515,6 +1564,8 @@ export async function resetStudentQuizSubmissionApi(
       }
     });
 
+    invalidatePublicStudentSummariesCache();
+
     const updatedStudentSnap = await getDoc(studentRef);
     if (!updatedStudentSnap.exists()) {
       throw new Error('Failed to refetch student after reset.');
@@ -1535,6 +1586,7 @@ export async function resetStudentQuizSubmissionApi(
       body: JSON.stringify({ date }),
     });
     if (res.ok) {
+      invalidatePublicStudentSummariesCache();
       return await parseJsonResponse(res);
     }
     const errData = await res.json().catch(() => ({}));
@@ -1552,6 +1604,8 @@ export async function resetDemoApi() {
       headers: getAuthHeaders(),
     });
     if (res.ok) {
+      invalidatePublicStudentSummariesCache();
+      invalidatePrizeMilestonesCache();
       return await parseJsonResponse(res);
     }
   } catch (e) {
@@ -1565,6 +1619,9 @@ export async function resetDemoApi() {
   for (const halacha of INITIAL_HALACHOT) {
     await setDoc(doc(db, 'halachot', halacha.id), halacha);
   }
+
+  invalidatePublicStudentSummariesCache();
+  invalidatePrizeMilestonesCache();
 
   return { success: true };
 }
