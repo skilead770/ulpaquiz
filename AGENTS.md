@@ -16,6 +16,10 @@
 - Never deploy or mutate production Firebase resources without explicit user approval for that operation.
 - Do not add secrets, service-account keys, or user-specific machine paths to the repository.
 
+## Communication guidelines
+
+- Always converse and respond in English only, under all circumstances, even when working with Hebrew code, Hebrew strings, Hebrew requirements, or Hebrew user prompts.
+
 ## Relevant skills
 
 Use the installed Firebase skills when their scope applies: `firebase-auth-basics`, `firebase-firestore`, `firestore-rules-creation`, `firebase-security-rules-auditor`, `firebase-hosting-basics`, and `firebase-basics`. Use `firebase-ai-logic-basics` only when changing Gemini/Firebase AI Logic features.
