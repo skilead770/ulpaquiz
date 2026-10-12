@@ -17,6 +17,7 @@ import {
   StudentLeaderboardItem,
   ClassLeaderboardItem,
   GradeLeaderboardItem,
+  PrizeMilestone,
 } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 
@@ -24,12 +25,14 @@ interface LeaderboardsProps {
   currentStudent: Student;
   leaderboardData: LeaderboardData | null;
   selectedDate: string;
+  prizeMilestones?: PrizeMilestone[];
 }
 
 export const Leaderboards: React.FC<LeaderboardsProps> = ({
   currentStudent,
   leaderboardData,
   selectedDate,
+  prizeMilestones,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<
     'my-class' | 'class-league' | 'grade-league'
@@ -43,10 +46,15 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
     );
   }
 
-  // Personal tracker calculations
+  // Personal tracker calculations based on manager's configured prizeMilestones
+  const effectiveMilestones =
+    prizeMilestones && prizeMilestones.length > 0
+      ? [...prizeMilestones].sort((a, b) => a.points - b.points)
+      : DEFAULT_PRIZE_MILESTONES;
+
   const nextMilestone =
-    DEFAULT_PRIZE_MILESTONES.find((m) => m.points > currentStudent.points) ||
-    DEFAULT_PRIZE_MILESTONES[DEFAULT_PRIZE_MILESTONES.length - 1];
+    effectiveMilestones.find((m) => m.points > currentStudent.points) ||
+    effectiveMilestones[effectiveMilestones.length - 1];
   const pointsNeededForPrize = Math.max(
     0,
     nextMilestone.points - currentStudent.points

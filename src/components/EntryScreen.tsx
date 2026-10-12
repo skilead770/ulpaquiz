@@ -287,7 +287,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
             <div>
               <div className="inline-flex items-center gap-1.5 bg-amber-600/40 border border-amber-300/30 text-amber-200 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 rounded-full font-bold mb-2">
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                <span>חידון הלכה יומית באולפנה • תשפ"ז</span>
+                <span>חידון הלכה יומית • אולפנת אבן שמואל • תשפ"ז</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-['Heebo']">
                 ספר "אהלי הלכה"
@@ -765,7 +765,7 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
 
       {/* Footer */}
       <div className="text-center mt-6 text-xs text-amber-900/70 font-medium space-y-1">
-        <p>אולפנת בני עקיבא • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
+        <p>אולפנת בני עקיבא אבן שמואל • מבצע לימוד יומי מתוך סדרת "אהלי הלכה"</p>
         <p className="text-[11px] text-amber-800/60">תשפ"ז • על פי פסקי הלכה של הגאון הרב יעקב אריאל שליט"א</p>
       </div>
     </div>

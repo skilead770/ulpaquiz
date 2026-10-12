@@ -49,6 +49,7 @@ import {
   INITIAL_MANAGERS,
   DEFAULT_PRIZE_MILESTONES,
 } from '../data/seedData';
+import { validateGmailAddress } from './gmailValidator';
 
 // Token Management for secure API requests.
 // Keep the token in memory only so a browser compromise or local persistence does not expose an authenticated session.
@@ -110,6 +111,7 @@ async function writeStudentAndPublicSummary(student: Student): Promise<void> {
     batch.delete(publicRef);
   }
   await batch.commit();
+  invalidatePublicStudentSummariesCache();
 }
 
 export async function fetchAdvanceQuizDates(today: string): Promise<string[]> {
@@ -147,6 +149,7 @@ async function approveStudentAndPublicSummary(student: Student): Promise<void> {
     batch.set(doc(db, 'publicStudents', student.id), publicSummary);
   }
   await batch.commit();
+  invalidatePublicStudentSummariesCache();
 }
 
 async function syncPublicStudentSummaries(students: Student[]): Promise<void> {
@@ -172,25 +175,54 @@ async function syncPublicStudentSummaries(students: Student[]): Promise<void> {
     });
     await batch.commit();
   }
+  invalidatePublicStudentSummariesCache();
 }
 
-async function fetchPublicStudentSummaries(): Promise<PublicStudentSummary[]> {
-  let snapshot = await getDocs(collection(db, 'publicStudents'));
-  const firebaseUser = auth.currentUser;
-  const email = firebaseUser?.email?.trim().toLowerCase();
-  if (snapshot.empty && firebaseUser?.emailVerified && email) {
-    const managerSnapshot = await getDocs(
-      query(collection(db, 'managers'), where('email', '==', email))
-    );
-    if (!managerSnapshot.empty) {
-      const studentsSnapshot = await getDocs(collection(db, 'students'));
-      const students = studentsSnapshot.docs.map((studentDoc) => studentDoc.data() as Student);
-      await syncPublicStudentSummaries(students);
-      snapshot = await getDocs(collection(db, 'publicStudents'));
-    }
+let cachedPublicSummaries: { data: PublicStudentSummary[]; timestamp: number } | null = null;
+let inFlightPublicSummariesPromise: Promise<PublicStudentSummary[]> | null = null;
+const PUBLIC_SUMMARIES_CACHE_TTL_MS = 30_000;
+
+export function invalidatePublicStudentSummariesCache(): void {
+  cachedPublicSummaries = null;
+  inFlightPublicSummariesPromise = null;
+}
+
+async function fetchPublicStudentSummaries(forceRefresh: boolean = false): Promise<PublicStudentSummary[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedPublicSummaries && (now - cachedPublicSummaries.timestamp < PUBLIC_SUMMARIES_CACHE_TTL_MS)) {
+    return cachedPublicSummaries.data;
   }
 
-  return snapshot.docs.map((studentDoc) => studentDoc.data() as PublicStudentSummary);
+  if (!forceRefresh && inFlightPublicSummariesPromise) {
+    return inFlightPublicSummariesPromise;
+  }
+
+  inFlightPublicSummariesPromise = (async () => {
+    try {
+      let snapshot = await getDocs(collection(db, 'publicStudents'));
+      const firebaseUser = auth.currentUser;
+      const email = firebaseUser?.email?.trim().toLowerCase();
+      if (snapshot.empty && firebaseUser?.emailVerified && email) {
+        const managerSnapshot = await getDocs(
+          query(collection(db, 'managers'), where('email', '==', email))
+        );
+        if (!managerSnapshot.empty) {
+          const studentsSnapshot = await getDocs(collection(db, 'students'));
+          const students = studentsSnapshot.docs.map((studentDoc) => studentDoc.data() as Student);
+          await syncPublicStudentSummaries(students);
+          snapshot = await getDocs(collection(db, 'publicStudents'));
+        }
+      }
+
+      const data = snapshot.docs.map((studentDoc) => studentDoc.data() as PublicStudentSummary);
+      cachedPublicSummaries = { data, timestamp: Date.now() };
+      return data;
+    } finally {
+      inFlightPublicSummariesPromise = null;
+    }
+  })();
+
+  return inFlightPublicSummariesPromise;
 }
 
 async function getOrSeedFirestoreHalachot(): Promise<DailyHalacha[]> {
@@ -313,13 +345,26 @@ export async function getOrCreateManagerParticipant(): Promise<Student> {
   }, { maxAttempts: 1 });
 }
 
-export async function fetchHalachot(): Promise<DailyHalacha[]> {
+export async function fetchHalachot(dates?: string[]): Promise<DailyHalacha[]> {
   try {
-    const snap = await getDocs(collection(db, 'halachot'));
-    if (!snap.empty) {
-      const list: DailyHalacha[] = [];
-      snap.forEach((d) => list.push(d.data() as DailyHalacha));
-      return list;
+    if (dates && dates.length > 0) {
+      const results: DailyHalacha[] = [];
+      for (let i = 0; i < dates.length; i += 30) {
+        const chunk = dates.slice(i, i + 30);
+        const q = query(collection(db, 'halachot'), where('date', 'in', chunk));
+        const snap = await getDocs(q);
+        snap.forEach((d) => results.push(d.data() as DailyHalacha));
+      }
+      if (results.length > 0) {
+        return results;
+      }
+    } else {
+      const snap = await getDocs(collection(db, 'halachot'));
+      if (!snap.empty) {
+        const list: DailyHalacha[] = [];
+        snap.forEach((d) => list.push(d.data() as DailyHalacha));
+        return list;
+      }
     }
   } catch (e) {
     console.info('[Firestore] Direct halacha read failed, falling back to API:', e);
@@ -328,12 +373,20 @@ export async function fetchHalachot(): Promise<DailyHalacha[]> {
   try {
     const res = await fetch(API_BASE_URL + '/api/halachot');
     if (res.ok) {
-      return await parseJsonResponse(res);
+      const data = await parseJsonResponse(res);
+      if (dates && dates.length > 0 && Array.isArray(data)) {
+        return data.filter((h: DailyHalacha) => dates.includes(h.date));
+      }
+      return data;
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for fetchHalachot');
   }
-  return getOrSeedFirestoreHalachot();
+  const seeded = await getOrSeedFirestoreHalachot();
+  if (dates && dates.length > 0) {
+    return seeded.filter((h) => dates.includes(h.date));
+  }
+  return seeded;
 }
 
 export async function fetchHalachaByDate(date: string): Promise<DailyHalacha> {
@@ -458,9 +511,11 @@ export async function submitQuizApi(
       batch.set(doc(db, 'publicStudents', student.id), publicSummary);
     }
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
 
+    const currentMilestones = await getPrizeMilestones();
     const milestonesReached: PrizeMilestone[] = [];
-    DEFAULT_PRIZE_MILESTONES.forEach((m) => {
+    currentMilestones.forEach((m) => {
       if (previousPoints < m.points && newPoints >= m.points) {
         milestonesReached.push(m);
       }
@@ -599,20 +654,33 @@ export async function fetchLeaderboardApi(date: string): Promise<LeaderboardData
   };
 }
 
-export async function getPrizeMilestones(): Promise<PrizeMilestone[]> {
+let cachedPrizeMilestones: PrizeMilestone[] | null = null;
+
+export function invalidatePrizeMilestonesCache(): void {
+  cachedPrizeMilestones = null;
+}
+
+export async function getPrizeMilestones(forceRefresh: boolean = false): Promise<PrizeMilestone[]> {
+  if (!forceRefresh && cachedPrizeMilestones) {
+    return cachedPrizeMilestones;
+  }
   try {
     const settingsSnap = await getDoc(doc(db, 'settings', 'prizeMilestones'));
     if (settingsSnap.exists()) {
       const data = settingsSnap.data() as { milestones?: PrizeMilestone[] };
       if (Array.isArray(data.milestones) && data.milestones.length > 0) {
-        return [...data.milestones].sort((a, b) => a.points - b.points);
+        const sorted = [...data.milestones].sort((a, b) => a.points - b.points);
+        cachedPrizeMilestones = sorted;
+        return sorted;
       }
     }
   } catch (err) {
     console.info('[Firestore] Direct prize milestone read failed, falling back to defaults:', err);
   }
 
-  return [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points);
+  const defaults = [...DEFAULT_PRIZE_MILESTONES].sort((a, b) => a.points - b.points);
+  cachedPrizeMilestones = defaults;
+  return defaults;
 }
 
 export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Promise<PrizeMilestone[]> {
@@ -631,6 +699,7 @@ export async function savePrizeMilestonesApi(milestones: PrizeMilestone[]): Prom
     updatedAt: new Date().toISOString(),
   });
 
+  cachedPrizeMilestones = normalized;
   return normalized;
 }
 
@@ -923,6 +992,7 @@ export async function deleteStudentApi(id: string) {
     batch.delete(doc(db, 'students', id));
     batch.delete(doc(db, 'publicStudents', id));
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
     const allStudents = await fetchAllStudentRecords();
     return { success: true, students: allStudents };
   } catch (error) {
@@ -935,16 +1005,35 @@ export async function deleteStudentApi(id: string) {
 }
 
 export async function bulkImportHalachotApi(halachot: Partial<DailyHalacha>[], replaceAll = false) {
-  const res = await fetch(API_BASE_URL + '/api/admin/bulk-import-halachot', {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ halachot, replaceAll }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'שגיאה ביבוא הלכות');
+  try {
+    const res = await fetch(API_BASE_URL + '/api/admin/bulk-import-halachot', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ halachot, replaceAll }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.info('[API] Backend unavailable, writing directly to Firestore via writeBatch');
   }
-  return res.json();
+
+  // Direct Firestore batch upload in chunks of 400 (under the 500 operation limit)
+  let addedCount = 0;
+  let updatedCount = 0;
+  const chunkSize = 400;
+  for (let i = 0; i < halachot.length; i += chunkSize) {
+    const chunk = halachot.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      if (!item.id || !item.date) continue;
+      const ref = doc(db, 'halachot', item.id);
+      batch.set(ref, item, { merge: true });
+      addedCount++;
+    }
+    await batch.commit();
+  }
+  return { success: true, addedCount, updatedCount };
 }
 
 export async function parseDocContentApi(data: ArrayBuffer | Uint8Array | string) {
@@ -1235,52 +1324,58 @@ export async function registerStudentApi(studentData: {
   message: string;
   student?: Student;
 }> {
-  const cleanEmail = (studentData.email || studentData.username || '').trim().toLowerCase();
-  const effectiveEmail = cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@gmail.com`;
+  const rawInput = (studentData.email || studentData.username || '').trim();
+  const gmailValidation = validateGmailAddress(rawInput);
+  if (!gmailValidation.isValid || !gmailValidation.normalizedEmail) {
+    throw new Error(gmailValidation.error || 'כתובת Gmail אינה תקינה');
+  }
+  const effectiveEmail = gmailValidation.normalizedEmail;
+  const registrationDocId = getStudentRegistrationDocumentId(effectiveEmail);
+  const baseUser = effectiveEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
 
-  try {
-    const existingStudents = await fetchAllStudentRecords();
-    const existing = existingStudents.find((s) => {
-      const sEmail = s.email ? s.email.trim().toLowerCase() : '';
-      const sUser = s.username ? s.username.trim().toLowerCase() : '';
-      return sEmail === effectiveEmail || sUser === effectiveEmail || sUser === cleanEmail.split('@')[0];
-    });
+  // Check if current user is logged in as this email
+  const currentUser = auth.currentUser;
+  const isCurrentUser = currentUser?.emailVerified && currentUser.email?.trim().toLowerCase() === effectiveEmail;
 
-    if (existing) {
-      if (existing.status === 'approved') {
-        return {
-          success: true,
-          status: 'approved',
-          autoApproved: true,
-          message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
-          student: existing,
-        };
+  if (isCurrentUser) {
+    try {
+      const existingSnap = await getDoc(doc(db, 'students', registrationDocId));
+      if (existingSnap.exists()) {
+        const existing = existingSnap.data() as Student;
+        if (existing.status === 'approved') {
+          return {
+            success: true,
+            status: 'approved',
+            autoApproved: true,
+            message: 'החשבון כבר אושר. יש להתחבר באמצעות חשבון Google הרשום במערכת.',
+            student: existing,
+          };
+        }
+        if (existing.status === 'pending') {
+          return {
+            success: true,
+            status: 'pending',
+            autoApproved: false,
+            message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
+            student: existing,
+          };
+        }
+        throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
       }
-      if (existing.status === 'pending') {
-        return {
-          success: true,
-          status: 'pending',
-          autoApproved: false,
-          message: 'ההרשמה שלך כבר נקלטה וממתינה לאישור. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-          student: existing,
-        };
-      }
-      throw new Error('בקשת ההרשמה שלך נדחתה בעבר. נא לפנות להנהלת האולפנה.');
+    } catch (e: any) {
+      if (e.message && e.message.includes('נדחתה')) throw e;
     }
+  }
 
-    const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
-    let finalUsername = baseUser;
-    let counter = 1;
-    while (existingStudents.some((s) => s.username.toLowerCase() === finalUsername.toLowerCase())) {
-      finalUsername = `${baseUser}${counter++}`;
-    }
-
-    let matchedInvitation: Invitation | undefined;
-    if (studentData.invitationCode) {
+  // Validate invitation code if provided
+  let matchedInvitation: Invitation | undefined;
+  if (studentData.invitationCode?.trim()) {
+    try {
+      const code = studentData.invitationCode.trim().toUpperCase();
       const invitationSnap = await getDocs(collection(db, 'invitations'));
       const invDoc = invitationSnap.docs.find((d) => {
         const item = d.data() as Invitation;
-        return item.code.trim().toUpperCase() === studentData.invitationCode!.trim().toUpperCase() && item.active;
+        return item.code.trim().toUpperCase() === code && item.active;
       });
 
       if (invDoc) {
@@ -1288,73 +1383,22 @@ export async function registerStudentApi(studentData: {
         if (item.maxUses > 0 && item.usedCount >= item.maxUses) {
           throw new Error('קוד ההזמנה הגיע למכסת השימושים המרבית');
         }
-        matchedInvitation = { ...item, usedCount: item.usedCount + 1 };
-        await setDoc(doc(db, 'invitations', invDoc.id), matchedInvitation);
+        matchedInvitation = item;
+      } else {
+        throw new Error('קוד הזמנה לא קיים או שאינו פעיל');
       }
+    } catch (invErr: any) {
+      if (invErr.message) throw invErr;
     }
-
-    const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
-    const derivedGrade = inferGradeFromClass(chosenClass);
-    const newStudent: Student = {
-      id: getStudentRegistrationDocumentId(effectiveEmail),
-      fullName: studentData.fullName.trim(),
-      className: chosenClass,
-      grade: derivedGrade,
-      username: finalUsername,
-      email: effectiveEmail,
-      points: 0,
-      completedDates: [],
-      submissions: {},
-      status: 'pending',
-      registeredAt: new Date().toISOString(),
-      ...(studentData.invitationCode?.trim()
-        ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
-        : {}),
-    };
-
-    await setDoc(doc(db, 'students', newStudent.id), newStudent);
-
-    return {
-      success: true,
-      status: 'pending',
-      autoApproved: false,
-      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-      student: newStudent,
-    };
-  } catch (firestoreErr: any) {
-    console.info('[Firestore] Direct registration failed, falling back to API:', firestoreErr);
   }
 
-  try {
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(studentData),
-    });
-    if (res.ok) {
-      return await parseJsonResponse(res);
-    } else {
-      const err = await parseJsonResponse(res).catch(() => ({ error: 'שגיאה ברישום' }));
-      throw new Error(err.error || 'שגיאה ברישום');
-    }
-  } catch (e: any) {
-    if (e.message && (e.message.includes('Gmail') || e.message.includes('שם מלא'))) {
-      throw e;
-    }
-    console.info('[API] Falling back to seeded Firestore for registerStudentApi');
-  }
-
-  if (studentData.invitationCode?.trim()) {
-    throw new Error('הרשמה עם קוד הזמנה דורשת חיבור לשרת. נסי שוב מאוחר יותר.');
-  }
-
-  const baseUser = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'student';
-  const chosenClass = studentData.className?.trim() || DEFAULT_CLASSES[0];
+  const chosenClass = (studentData.className?.trim() || matchedInvitation?.className || DEFAULT_CLASSES[0]);
+  const derivedGrade = inferGradeFromClass(chosenClass);
   const newStudent: Student = {
-    id: getStudentRegistrationDocumentId(effectiveEmail),
+    id: registrationDocId,
     fullName: studentData.fullName.trim(),
     className: chosenClass,
-    grade: inferGradeFromClass(chosenClass),
+    grade: derivedGrade,
     username: baseUser,
     email: effectiveEmail,
     points: 0,
@@ -1362,21 +1406,38 @@ export async function registerStudentApi(studentData: {
     submissions: {},
     status: 'pending',
     registeredAt: new Date().toISOString(),
+    ...(studentData.invitationCode?.trim()
+      ? { invitationCode: studentData.invitationCode.trim().toUpperCase() }
+      : {}),
   };
+
   try {
     await setDoc(doc(db, 'students', newStudent.id), newStudent);
-  } catch (error) {
-    console.error('[Registration] Direct Firestore registration failed:', error);
+    return {
+      success: true,
+      status: 'pending',
+      autoApproved: false,
+      message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
+      student: newStudent,
+    };
+  } catch (error: any) {
+    console.info('[Registration] Direct Firestore registration attempt failed, trying fallback:', error);
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(studentData),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await parseJsonResponse(res);
+      }
+    } catch {
+      // Ignore static Hosting HTML fallback failure
+    }
+
     throw new Error('לא ניתן להשלים את ההרשמה. ייתכן שכבר קיימת בקשה לכתובת זו; התחברי באמצעות Google או פני למנהלת.');
   }
-
-  return {
-    success: true,
-    status: 'pending',
-    autoApproved: false,
-    message: 'בקשת ההרשמה נקלטה בהצלחה! היא ממתינה כעת לאישור הנהלת האולפנה. לאחר האישור, התחברי באמצעות חשבון Google הרשום במערכת.',
-    student: newStudent,
-  };
 }
 
 export async function approveStudentApi(id: string) {
@@ -1430,6 +1491,7 @@ export async function rejectStudentApi(id: string) {
     batch.update(studentRef, { status: 'rejected' });
     batch.delete(doc(db, 'publicStudents', id));
     await batch.commit();
+    invalidatePublicStudentSummariesCache();
     return { success: true };
   } catch (e) {
     firestoreError = e;
@@ -1443,6 +1505,7 @@ export async function rejectStudentApi(id: string) {
     });
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
+      invalidatePublicStudentSummariesCache();
       return await parseJsonResponse(res);
     }
     if (contentType.includes('application/json')) {
@@ -1501,6 +1564,8 @@ export async function resetStudentQuizSubmissionApi(
       }
     });
 
+    invalidatePublicStudentSummariesCache();
+
     const updatedStudentSnap = await getDoc(studentRef);
     if (!updatedStudentSnap.exists()) {
       throw new Error('Failed to refetch student after reset.');
@@ -1521,6 +1586,7 @@ export async function resetStudentQuizSubmissionApi(
       body: JSON.stringify({ date }),
     });
     if (res.ok) {
+      invalidatePublicStudentSummariesCache();
       return await parseJsonResponse(res);
     }
     const errData = await res.json().catch(() => ({}));
@@ -1538,6 +1604,8 @@ export async function resetDemoApi() {
       headers: getAuthHeaders(),
     });
     if (res.ok) {
+      invalidatePublicStudentSummariesCache();
+      invalidatePrizeMilestonesCache();
       return await parseJsonResponse(res);
     }
   } catch (e) {
@@ -1551,6 +1619,9 @@ export async function resetDemoApi() {
   for (const halacha of INITIAL_HALACHOT) {
     await setDoc(doc(db, 'halachot', halacha.id), halacha);
   }
+
+  invalidatePublicStudentSummariesCache();
+  invalidatePrizeMilestonesCache();
 
   return { success: true };
 }

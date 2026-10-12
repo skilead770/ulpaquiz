@@ -92,7 +92,23 @@ npm run dev
 
 ---
 
-## 4. Key Accounts & URLs
+## 4. Work Completed — October 7, 2026
+
+1. **Firestore Full-Year Halachot Sync**:
+   - Seeded all **489 Halachot** for Hebrew year 5787 (תשפ״ז) into the Firestore database.
+   - Populated all Hebrew dates including Tishrei (`ט"ז בתשרי` - כבוד הסוכה, through `כ"ו בתשרי` - בישול בחמה, and beyond).
+2. **Quota Read Optimization (98%+ reduction)**:
+   - Updated `App.tsx` and `api.ts` so student visits only query their active 5-to-8 day date window via Firestore `in` queries (`where('date', 'in', ...)`).
+   - Eliminated full-collection reads (`489 docs`) on every student page load, preventing Spark quota exhaustion.
+   - Admins retain full visibility over all 489 days in the Admin Panel and Hebrew Calendar view.
+3. **Serverless Batch Import in Admin Panel**:
+   - Upgraded `bulkImportHalachotApi` in `src/lib/api.ts` to execute client-side `writeBatch` in 400-operation chunks.
+   - Added a one-click sync button in `AdminPanel.tsx` under "ניהול הלכות" linked to lazy-loaded `yearHalachot.json`.
+   - Added standalone `scripts/seed-halachot-firestore.mjs`.
+
+---
+
+## 5. Key Accounts & URLs
 
 | Role / Asset | Value | Notes |
 | :--- | :--- | :--- |
@@ -103,9 +119,9 @@ npm run dev
 
 ---
 
-## 5. Recommended Next Steps for Tomorrow
+## 6. Recommended Next Steps
 
-1. **Test Quiz Submission Flow**: Log in with your test student account on staging, answer the questions, submit, and verify that points update correctly.
-2. **Verify Admin Dashboard**: Log in as `skilead770@gmail.com`, check student approval, view the leaderboard, and test adding a Halacha for tomorrow (`2026-10-07`).
-3. **Merge to Production**: Once satisfied with testing on staging, open the pull request to merge `staging` into `main` and deploy to production.
+1. **Verify Student Experience**: Log in with your test student account on staging, check that today's date (`2026-10-07`) displays correctly, complete the quiz, and confirm points update.
+2. **Admin AI Question Generation**: Use the Admin Panel to generate or review questions for upcoming dates.
+3. **Production Deployment**: When ready, open the PR to merge `staging` into `main` and deploy to production.
 

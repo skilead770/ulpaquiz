@@ -106,8 +106,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     ספר "אהלי הלכה"
                   </span>
                 </div>
-                <p className="text-[11px] sm:text-xs text-amber-800/80 font-medium hidden md:block truncate">
-                  אולפנת אבן שמואל • לימוד יומי מתוך סדרת "אהלי הלכה"
+                <p className="text-[11px] sm:text-xs text-amber-800/90 font-medium truncate">
+                  <span className="font-bold text-amber-900">אולפנת אבן שמואל</span>
+                  <span className="hidden sm:inline"> • לימוד יומי מתוך סדרת "אהלי הלכה"</span>
                 </p>
               </div>
             </div>

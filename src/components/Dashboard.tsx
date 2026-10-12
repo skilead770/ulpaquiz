@@ -13,7 +13,7 @@ import {
   HelpCircle,
   Clock,
 } from 'lucide-react';
-import { Student, DailyHalacha } from '../types';
+import { Student, DailyHalacha, PrizeMilestone } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { formatQuizDateLabel } from '../lib/quizSchedule';
 
@@ -26,6 +26,7 @@ interface DashboardProps {
   selectedDate: string;
   todayDate: string;
   availableQuizDates: string[];
+  prizeMilestones?: PrizeMilestone[];
   onSelectDate: (date: string) => void;
   onStartQuiz: () => void;
   onViewLeaderboards: () => void;
@@ -40,6 +41,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   selectedDate,
   todayDate,
   availableQuizDates,
+  prizeMilestones,
   onSelectDate,
   onStartQuiz,
   onViewLeaderboards,
@@ -53,20 +55,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const isCompletedToday = student.completedDates.includes(selectedDate);
   const submission = student.submissions[selectedDate];
 
-  // Find next milestone
+  // Find next milestone based on manager's configured prizeMilestones
+  const effectiveMilestones =
+    prizeMilestones && prizeMilestones.length > 0
+      ? [...prizeMilestones].sort((a, b) => a.points - b.points)
+      : DEFAULT_PRIZE_MILESTONES;
+
   const nextMilestone =
-    DEFAULT_PRIZE_MILESTONES.find((m) => m.points > student.points) ||
-    DEFAULT_PRIZE_MILESTONES[DEFAULT_PRIZE_MILESTONES.length - 1];
+    effectiveMilestones.find((m) => m.points > student.points) ||
+    effectiveMilestones[effectiveMilestones.length - 1];
   const pointsToNext = Math.max(0, nextMilestone.points - student.points);
   const prevMilestonePoints =
-    DEFAULT_PRIZE_MILESTONES.filter((m) => m.points <= student.points).pop()
+    effectiveMilestones.filter((m) => m.points <= student.points).pop()
       ?.points || 0;
+  const milestoneRange = Math.max(1, nextMilestone.points - prevMilestonePoints);
   const progressPercent = Math.min(
     100,
     Math.round(
-      ((student.points - prevMilestonePoints) /
-        (nextMilestone.points - prevMilestonePoints)) *
-        100
+      ((student.points - prevMilestonePoints) / milestoneRange) * 100
     )
   );
 
