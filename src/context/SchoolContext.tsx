@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, ReactNo
 import { School, DEFAULT_SCHOOLS, DEFAULT_SCHOOL_ID, TenantContextType } from '../types/tenant';
 import { getGenderText } from '../lib/gender';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
-import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebaseClient';
 
@@ -141,6 +141,16 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
     }
   };
 
+  const deleteSchool = async (schoolId: string) => {
+    try {
+      await deleteDoc(doc(db, 'schools', schoolId));
+      setSchools((prev) => prev.filter((s) => s.id !== schoolId));
+    } catch (e) {
+      console.error('[SchoolContext] Failed to delete school:', e);
+      throw e;
+    }
+  };
+
   return (
     <SchoolContext.Provider
       value={{
@@ -153,6 +163,7 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
         canManageSchool,
         refreshSchools,
         saveSchool,
+        deleteSchool,
       }}
     >
       {children}

@@ -69,11 +69,12 @@ import {
   subscribeToCalendarAnnotations,
   saveCalendarAnnotationApi,
 } from '../lib/api';
-import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp, BarChart3, Eye, Copy, ChevronLeft, ChevronRight, TrendingUp, CheckCircle } from 'lucide-react';
+import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp, BarChart3, Eye, Copy, ChevronLeft, ChevronRight, TrendingUp, CheckCircle, Building2 } from 'lucide-react';
 import { signInWithGoogleSSO } from '../lib/authService';
 import { ULPANA_LOGO_URL } from '../assets/logo';
 import { getTodayInJerusalem } from '../lib/quizSchedule';
 import { useTenant } from '../context/SchoolContext';
+import { SchoolsManagerTab } from './admin/SchoolsManagerTab';
 
 interface AdminPanelProps {
   students: Student[];
@@ -333,7 +334,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isBoys = currentSchool.type === 'boys';
 
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication'
+    'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication' | 'schools'
   >('students');
 
   const sortedHalachot = React.useMemo(
@@ -1929,6 +1930,20 @@ ${targetHalacha.content}
               <GraduationCap className="w-4 h-4 text-amber-300 shrink-0" />
               <span>כיתות ({classesList.length})</span>
             </button>
+
+            {isSuperAdmin && (
+              <button
+                onClick={() => setActiveAdminTab('schools')}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeAdminTab === 'schools'
+                    ? 'bg-amber-600 text-white shadow-md'
+                    : 'text-amber-200 hover:bg-white/10'
+                }`}
+              >
+                <Building2 className="w-4 h-4 text-amber-300 shrink-0" />
+                <span>מוסדות לימוד ({availableSchools.length}) [Super]</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -4533,6 +4548,18 @@ ${targetHalacha.content}
             </button>
           </form>
         </div>
+      )}
+
+      {/* ====================================================
+          TAB: SUPER ADMIN SCHOOLS MANAGEMENT
+      ==================================================== */}
+      {activeAdminTab === 'schools' && isSuperAdmin && (
+        <SchoolsManagerTab
+          onSwitchSchool={(schoolId) => {
+            setSchoolId(schoolId);
+            onRefreshData();
+          }}
+        />
       )}
 
       {editingAnnotationEntry && (

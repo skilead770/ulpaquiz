@@ -41,6 +41,7 @@ export interface TenantContextType {
   canManageSchool: (schoolId: string) => boolean;
   refreshSchools: () => Promise<void>;
   saveSchool: (school: School) => Promise<void>;
+  deleteSchool: (schoolId: string) => Promise<void>;
 }
 
 export const DEFAULT_SCHOOL_ID = 'shvut-rachel';
@@ -81,3 +82,4 @@ export const DEFAULT_SCHOOLS: School[] = [
     isActive: true,
   },
 ];
+
