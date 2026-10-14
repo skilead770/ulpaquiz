@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight, Key, Check, GraduationCap } from 'lucide-react';
-import { GradeType, Student, DEFAULT_CLASSES, inferGradeFromClass } from '../types';
+import { GradeType, Student, DEFAULT_CLASSES, inferGradeFromClass, sortClasses } from '../types';
 import { registerStudentApi, validateInvitationCodeApi, fetchClassesApi } from '../lib/api';
 
 interface RegisterPageProps {
@@ -17,7 +17,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [fullName, setFullName] = useState('');
   const [grade, setGrade] = useState<GradeType>('ט');
   const [className, setClassName] = useState("ט'1");
-  const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
+  const [classesList, setClassesList] = useState<string[]>(() => sortClasses(DEFAULT_CLASSES));
   const [username, setUsername] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [invitationValidInfo, setInvitationValidInfo] = useState<{
@@ -36,9 +36,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   useEffect(() => {
     fetchClassesApi().then((list) => {
       if (list && list.length > 0) {
-        setClassesList(list);
-        setClassName((prev) => (list.includes(prev) ? prev : list[0]));
-        setGrade(inferGradeFromClass(list[0]));
+        const sorted = sortClasses(list);
+        setClassesList(sorted);
+        setClassName((prev) => (sorted.includes(prev) ? prev : sorted[0]));
+        setGrade(inferGradeFromClass(sorted[0]));
       }
     });
   }, []);

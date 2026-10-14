@@ -19,6 +19,33 @@ export function inferGradeFromClass(className: string): GradeType {
   return 'ט';
 }
 
+export function parseClassRank(className: string): { gradeRank: number; classNum: number; raw: string } {
+  const clean = (className || '').trim();
+  let gradeRank = 99;
+  if (/^ז['"״\s]?|\bז\b/i.test(clean)) gradeRank = 7;
+  else if (/^ח['"״\s]?|\bח\b/i.test(clean)) gradeRank = 8;
+  else if (/^ט['"״\s]?|\bט\b/i.test(clean)) gradeRank = 9;
+  else if (/^יב['"״\s]?|י["״]ב/i.test(clean)) gradeRank = 12;
+  else if (/^יא['"״\s]?|י["״]א/i.test(clean)) gradeRank = 11;
+  else if (/^י['"״\s]?|\bי\b/i.test(clean)) gradeRank = 10;
+
+  const matchNum = clean.match(/\d+/);
+  const classNum = matchNum ? parseInt(matchNum[0], 10) : 999;
+  return { gradeRank, classNum, raw: clean };
+}
+
+export function compareClasses(a: string, b: string): number {
+  const rankA = parseClassRank(a);
+  const rankB = parseClassRank(b);
+  if (rankA.gradeRank !== rankB.gradeRank) return rankA.gradeRank - rankB.gradeRank;
+  if (rankA.classNum !== rankB.classNum) return rankA.classNum - rankB.classNum;
+  return rankA.raw.localeCompare(rankB.raw, 'he');
+}
+
+export function sortClasses(classes: string[]): string[] {
+  return [...classes].sort(compareClasses);
+}
+
 export function getStudentRegistrationDocumentId(email: string): string {
   return `s-reg-${email.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`;
 }

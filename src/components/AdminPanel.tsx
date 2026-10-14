@@ -39,6 +39,8 @@ import {
   Manager,
   DEFAULT_CLASSES,
   inferGradeFromClass,
+  sortClasses,
+  compareClasses,
   CustomCalendarAnnotation,
   CalendarAnnotationsMap,
 } from '../types';
@@ -488,14 +490,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const selectedHalacha = selectedEntry?.halacha || null;
 
   // School Classes Management State
-  const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
+  const [classesList, setClassesList] = useState<string[]>(() => sortClasses(DEFAULT_CLASSES));
   const [newClassName, setNewClassName] = useState('');
   const [isAddingClass, setIsAddingClass] = useState(false);
   const [classMsg, setClassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   React.useEffect(() => {
     fetchClassesApi().then((list) => {
-      if (list && list.length > 0) setClassesList(list);
+      if (list && list.length > 0) setClassesList(sortClasses(list));
     });
   }, []);
 
@@ -1699,11 +1701,11 @@ ${targetHalacha.content}
       if (studentSortOrder === 'points') {
         return b.points - a.points || a.fullName.localeCompare(b.fullName, 'he');
       }
-      return a.className.localeCompare(b.className, 'he', { numeric: true })
+      return compareClasses(a.className, b.className)
         || a.fullName.localeCompare(b.fullName, 'he');
     });
 
-  const uniqueClasses = Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean).sort();
+  const uniqueClasses = sortClasses(Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean));
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">

@@ -38,6 +38,7 @@ import {
   PublicStudentSummary,
   DEFAULT_CLASSES,
   inferGradeFromClass,
+  sortClasses,
   getStudentRegistrationDocumentId,
   CustomCalendarAnnotation,
   CalendarAnnotationsMap,
@@ -1802,10 +1803,10 @@ export async function fetchClassesApi(): Promise<string[]> {
         }
       }
     });
-    if (found) return found;
+    if (found) return sortClasses(found);
 
-    await setDoc(doc(db, 'settings', 'classes'), { list: DEFAULT_CLASSES });
-    return DEFAULT_CLASSES;
+    await setDoc(doc(db, 'settings', 'classes'), { list: sortClasses(DEFAULT_CLASSES) });
+    return sortClasses(DEFAULT_CLASSES);
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
   }
@@ -1815,14 +1816,14 @@ export async function fetchClassesApi(): Promise<string[]> {
     if (res.ok) {
       const data = await parseJsonResponse(res);
       if (Array.isArray(data.classes) && data.classes.length > 0) {
-        return data.classes;
+        return sortClasses(data.classes);
       }
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for fetchClassesApi');
   }
 
-  return DEFAULT_CLASSES;
+  return sortClasses(DEFAULT_CLASSES);
 }
 
 export async function addClassApi(name: string): Promise<string[]> {
@@ -1832,7 +1833,7 @@ export async function addClassApi(name: string): Promise<string[]> {
   try {
     const current = await fetchClassesApi();
     if (!current.includes(clean)) {
-      const updated = [...current, clean];
+      const updated = sortClasses([...current, clean]);
       await setDoc(doc(db, 'settings', 'classes'), { list: updated });
       return updated;
     }
@@ -1849,7 +1850,7 @@ export async function addClassApi(name: string): Promise<string[]> {
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for addClassApi');
@@ -1857,7 +1858,7 @@ export async function addClassApi(name: string): Promise<string[]> {
 
   const current = await fetchClassesApi();
   if (!current.includes(clean)) {
-    const updated = [...current, clean];
+    const updated = sortClasses([...current, clean]);
     await setDoc(doc(db, 'settings', 'classes'), { list: updated });
     return updated;
   }
@@ -1869,7 +1870,7 @@ export async function deleteClassApi(name: string): Promise<string[]> {
 
   try {
     const current = await fetchClassesApi();
-    const updated = current.filter((c) => c !== clean);
+    const updated = sortClasses(current.filter((c) => c !== clean));
     await setDoc(doc(db, 'settings', 'classes'), { list: updated });
     return updated;
   } catch (err) {
@@ -1883,22 +1884,23 @@ export async function deleteClassApi(name: string): Promise<string[]> {
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for deleteClassApi');
   }
 
   const current = await fetchClassesApi();
-  const updated = current.filter((c) => c !== clean);
+  const updated = sortClasses(current.filter((c) => c !== clean));
   await setDoc(doc(db, 'settings', 'classes'), { list: updated });
   return updated;
 }
 
 export async function updateClassesApi(classes: string[]): Promise<string[]> {
+  const sorted = sortClasses(classes);
   try {
-    await setDoc(doc(db, 'settings', 'classes'), { list: classes });
-    return classes;
+    await setDoc(doc(db, 'settings', 'classes'), { list: sorted });
+    return sorted;
   } catch (err) {
     console.warn('[Firestore Fallback] Error updating classes:', err);
   }
@@ -1907,18 +1909,18 @@ export async function updateClassesApi(classes: string[]): Promise<string[]> {
     const res = await fetch('/api/classes', {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ classes }),
+      body: JSON.stringify({ classes: sorted }),
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for updateClassesApi');
   }
 
-  await setDoc(doc(db, 'settings', 'classes'), { list: classes });
-  return classes;
+  await setDoc(doc(db, 'settings', 'classes'), { list: sorted });
+  return sorted;
 }
 
 // ==========================================

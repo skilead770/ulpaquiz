@@ -17,7 +17,7 @@ import {
   GraduationCap,
   Lock,
 } from 'lucide-react';
-import { Student, DEFAULT_CLASSES } from '../types';
+import { Student, DEFAULT_CLASSES, sortClasses } from '../types';
 import { registerStudentApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
 import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail } from '../lib/authService';
@@ -36,15 +36,16 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
   // Simple registration fields: Full Name, GMAIL address, and Class from managed list
   const [fullName, setFullName] = useState('');
   const [gmail, setGmail] = useState('');
-  const [classesList, setClassesList] = useState<string[]>(DEFAULT_CLASSES);
+  const [classesList, setClassesList] = useState<string[]>(() => sortClasses(DEFAULT_CLASSES));
   const [selectedClass, setSelectedClass] = useState<string>(DEFAULT_CLASSES[0] || "ט'1");
 
   // Load available classes from server/Firestore
   React.useEffect(() => {
     fetchClassesApi().then((list) => {
       if (list && list.length > 0) {
-        setClassesList(list);
-        setSelectedClass((prev) => (list.includes(prev) ? prev : list[0]));
+        const sorted = sortClasses(list);
+        setClassesList(sorted);
+        setSelectedClass((prev) => (sorted.includes(prev) ? prev : sorted[0]));
       }
     });
   }, []);
