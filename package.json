@@ -17,7 +17,13 @@
     "deploy:staging:firestore": "npx firebase-tools deploy --only firestore --project staging",
     "deploy:prod": "npm run build:firebase && npx firebase-tools deploy --only hosting --project prod",
     "deploy:prod:rules": "npx firebase-tools deploy --only firestore:rules --project prod",
-    "deploy:prod:firestore": "npx firebase-tools deploy --only firestore --project prod"
+    "deploy:prod:firestore": "npx firebase-tools deploy --only firestore --project prod",
+    "build:halyom": "vite build --mode halyom",
+    "build:halyom:staging": "vite build --mode halyom-staging",
+    "deploy:halyom": "npm run build:halyom && npx firebase-tools deploy --only hosting --project halyom",
+    "deploy:halyom:rules": "npx firebase-tools deploy --only firestore:rules --project halyom",
+    "deploy:halyom:staging": "npm run build:halyom:staging && npx firebase-tools deploy --only hosting --project halyom-staging",
+    "deploy:halyom:staging:rules": "npx firebase-tools deploy --only firestore:rules --project halyom-staging"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

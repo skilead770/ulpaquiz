@@ -160,3 +160,52 @@ export interface Manager {
   role: 'superadmin' | 'admin';
   addedAt: string;
 }
+
+export type SchoolGender = 'boys' | 'girls';
+export type SchoolType = 'ulpana' | 'yeshiva';
+
+export interface GenderVocabulary {
+  student: string;
+  students: string;
+  headmaster: string;
+  teacher: string;
+  coordinator: string;
+  schoolTerm: string;
+  school: string;
+  welcome: string;
+  login: string;
+  register: string;
+  study: string;
+  leaderboard: string;
+  admin: string;
+  completedQuiz: string;
+  earnedPoints: string;
+  champion: string;
+  pendingNotice: string;
+  studyConfirm: string;
+  registerNewStudent: string;
+  studentLeague: string;
+  waitingApproval: string;
+  approvedStudent: string;
+  noStudentsYet: string;
+  congratulationsChampion: string;
+}
+
+export interface SchoolConfig {
+  id: string; // unique slug e.g. "even-shmuel", "kfar-haroeh"
+  name: string; // Hebrew name e.g. "אולפנת אבן שמואל"
+  gender: SchoolGender;
+  type: SchoolType;
+  logoUrl: string;
+  primaryColor: string; // hex color for buttons, badges, gradients
+  themeKey?: 'amber' | 'royal-blue' | 'purple' | 'emerald' | 'navy';
+  customDomain?: string;
+  defaultClasses: string[];
+  superAdminEmail: string;
+  mainManagerEmail: string;
+  mainManagerName?: string;
+  createdAt: string;
+  dailyDedication?: string;
+  active: boolean;
+}
+

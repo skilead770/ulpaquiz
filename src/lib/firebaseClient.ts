@@ -3,9 +3,25 @@ import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import prodConfig from '../../firebase-applet-config.json';
 import stagingConfig from '../../firebase-applet-config.staging.json';
+import halyomConfig from '../../firebase-applet-config.halyom.json';
+import halyomStagingConfig from '../../firebase-applet-config.halyom-staging.json';
 import { FIREBASE_PROJECT_ID } from './config';
 
-const firebaseConfig = FIREBASE_PROJECT_ID === 'ulpaquiz-staging' ? stagingConfig : prodConfig;
+function resolveFirebaseConfig() {
+  switch (FIREBASE_PROJECT_ID) {
+    case 'halyom':
+      return halyomConfig;
+    case 'halyom-staging':
+      return halyomStagingConfig;
+    case 'ulpaquiz-staging':
+      return stagingConfig;
+    case 'ulpaquiz':
+    default:
+      return prodConfig;
+  }
+}
+
+const firebaseConfig = resolveFirebaseConfig();
 
 // Safety Check: Ensure the app is running against the correct Firebase project
 if (!firebaseConfig.projectId) {

@@ -16,25 +16,25 @@ const getEnvVar = (viteVal: string | undefined, nodeKey: string, fallback: strin
 
 // Explicit static references to import.meta.env so Vite can replace them at build time
 export const SUPER_ADMIN_EMAIL: string = getEnvVar(
-  import.meta.env.VITE_SUPER_ADMIN_EMAIL,
+  typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPER_ADMIN_EMAIL : undefined,
   'VITE_SUPER_ADMIN_EMAIL',
   'skilead770@gmail.com'
 );
 
 export const FIREBASE_PROJECT_ID: string = getEnvVar(
-  import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_FIREBASE_PROJECT_ID : undefined,
   'VITE_FIREBASE_PROJECT_ID',
   'ulpaquiz'
 );
 
 export const API_BASE_URL: string = getEnvVar(
-  import.meta.env.VITE_API_BASE_URL,
+  typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_API_BASE_URL : undefined,
   'VITE_API_BASE_URL',
   ''
 );
 
 // Security check: Warn if environment variables are missing in production
-if (import.meta.env.PROD) {
+if (typeof import.meta !== 'undefined' && import.meta.env?.PROD) {
   if (!SUPER_ADMIN_EMAIL) {
     console.warn('[Config] VITE_SUPER_ADMIN_EMAIL is not set in production!');
   }
