@@ -50,12 +50,19 @@ export function getStudentRegistrationDocumentId(email: string): string {
   return `s-reg-${email.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`;
 }
 
+export interface QuestionAuthor {
+  studentId?: string;
+  studentName: string;
+  className: string;
+}
+
 export interface Question {
   id: string;
   text: string;
   options: [string, string, string, string]; // exactly 4 options
   correctOptionIndex: number; // 0, 1, 2, or 3
   explanation?: string;
+  suggestedBy?: QuestionAuthor;
 }
 
 export interface DailyHalacha {
@@ -68,6 +75,51 @@ export interface DailyHalacha {
   source?: string; // e.g., 'ספר אהלי הלכה'
   content: string;
   questions: [Question, Question, Question, Question]; // exactly 4 questions
+  suggestedBy?: QuestionAuthor;
+}
+
+export interface QuestionSuggestion {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail?: string;
+  className: string;
+  grade: GradeType;
+  topic: string;
+  source?: string;
+  questionText: string;
+  options: [string, string, string, string];
+  correctOptionIndex: number; // 0..3
+  explanation?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  pointsAwarded?: number;
+  adminFeedback?: string;
+  targetDate?: string; // YYYY-MM-DD
+  createdAt: string; // ISO string
+  reviewedAt?: string;
+  reviewedBy?: string;
+}
+
+export type QuestionFeedbackType = 'error_report' | 'halachic_note' | 'suggestion' | 'other';
+
+export interface QuestionFeedback {
+  id: string;
+  date: string; // YYYY-MM-DD
+  halachaId?: string;
+  halachaTitle?: string;
+  questionId: string;
+  questionText: string;
+  studentId: string;
+  studentName: string;
+  studentEmail?: string;
+  className: string;
+  feedbackType: QuestionFeedbackType;
+  comment: string;
+  status: 'pending' | 'reviewed' | 'resolved';
+  createdAt: string; // ISO string
+  resolvedAt?: string;
+  resolvedBy?: string;
+  adminResponse?: string;
 }
 
 export interface QuizAvailability {

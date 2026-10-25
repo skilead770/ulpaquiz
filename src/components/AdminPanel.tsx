@@ -27,6 +27,10 @@ import {
   Mail,
   RotateCcw,
   Heart,
+  MessageSquare,
+  Gift,
+  Star,
+  Bookmark,
 } from 'lucide-react';
 import {
   Student,
@@ -43,6 +47,9 @@ import {
   compareClasses,
   CustomCalendarAnnotation,
   CalendarAnnotationsMap,
+  QuestionSuggestion,
+  QuestionFeedback,
+  QuestionFeedbackType,
 } from '../types';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { auth } from '../lib/firebaseClient';
@@ -64,12 +71,18 @@ import {
   addClassApi,
   deleteClassApi,
   resetStudentQuizSubmissionApi,
+  resetClassOrGradeScoreApi,
   savePrizeMilestonesApi,
   getPrizeMilestones,
   getDailyQuizDedicationApi,
   saveDailyQuizDedicationApi,
   subscribeToCalendarAnnotations,
   saveCalendarAnnotationApi,
+  fetchQuestionSuggestionsApi,
+  approveQuestionSuggestionApi,
+  rejectQuestionSuggestionApi,
+  fetchQuestionFeedbackApi,
+  resolveQuestionFeedbackApi,
 } from '../lib/api';
 import { Shield, UserCog, ShieldCheck, RefreshCw, FileText, UploadCloud, ExternalLink, FileUp, BarChart3, Eye, Copy, ChevronLeft, ChevronRight, TrendingUp, CheckCircle } from 'lucide-react';
 import { signInWithGoogleSSO } from '../lib/authService';
@@ -307,6 +320,22 @@ function parseDocumentHebrewHeading(line: string) {
   return { date, gregorianDate, heading: normalizedHeading, weekdayCorrection };
 }
 
+export const renderAdminPrizeIcon = (iconName?: string, className: string = 'w-4 h-4') => {
+  switch (iconName) {
+    case 'Crown': return <Crown className={className} />;
+    case 'Trophy': return <Trophy className={className} />;
+    case 'Gift': return <Gift className={className} />;
+    case 'Star': return <Star className={className} />;
+    case 'Sparkles': return <Sparkles className={className} />;
+    case 'BookOpen': return <BookOpen className={className} />;
+    case 'Bookmark': return <Bookmark className={className} />;
+    case 'Heart': return <Heart className={className} />;
+    case 'Award':
+    default:
+      return <Award className={className} />;
+  }
+};
+
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   students,
   studentsLoadError,
@@ -317,7 +346,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDailyDedicationChange,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication'
+    'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication' | 'suggestions'
   >('students');
 
   const sortedHalachot = React.useMemo(
@@ -535,6 +564,101 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // Class & Grade Score Reset State
+  interface ScoreResetTarget {
+    type: 'class' | 'grade';
+    value: string;
+    title: string;
+    studentCount: number;
+    totalPoints: number;
+  }
+  const [scoreResetTarget, setScoreResetTarget] = useState<ScoreResetTarget | null>(null);
+  const [isResettingScore, setIsResettingScore] = useState(false);
+  const [clearScoreHistory, setClearScoreHistory] = useState(false);
+  const [scoreResetMessage, setScoreResetMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const availableGrades = React.useMemo(() => {
+    const defaultGrades: GradeType[] = ['ט', 'י', 'יא', 'יב'];
+    const allFound = new Set<string>(defaultGrades);
+    students.forEach((s) => {
+      if (s.grade) allFound.add(s.grade);
+      const inferred = inferGradeFromClass(s.className);
+      if (inferred) allFound.add(inferred);
+    });
+    classesList.forEach((cls) => {
+      const inferred = inferGradeFromClass(cls);
+      if (inferred) allFound.add(inferred);
+    });
+    const order: Record<string, number> = { 'ז': 1, 'ח': 2, 'ט': 3, 'י': 4, 'יא': 5, 'יב': 6 };
+    return Array.from(allFound).sort((a, b) => (order[a] || 99) - (order[b] || 99));
+  }, [students, classesList]);
+
+  const handleOpenScoreResetModal = (type: 'class' | 'grade', value: string) => {
+    const targetClean = value.trim();
+    const matchingStudents = students.filter((s) => {
+      if (s.managerParticipation) return false;
+      if (type === 'class') {
+        return (s.className || '').trim() === targetClean;
+      } else {
+        return (
+          (s.grade || '').trim() === targetClean ||
+          inferGradeFromClass(s.className || '') === targetClean
+        );
+      }
+    });
+
+    const totalPoints = matchingStudents.reduce((sum, s) => sum + (s.points || 0), 0);
+    const title = type === 'class' ? `כיתה ${targetClean}` : `שכבת ${targetClean}'`;
+
+    setScoreResetTarget({
+      type,
+      value: targetClean,
+      title,
+      studentCount: matchingStudents.length,
+      totalPoints,
+    });
+    setClearScoreHistory(false);
+    setScoreResetMessage(null);
+  };
+
+  const handleConfirmScoreReset = async () => {
+    if (!scoreResetTarget) return;
+    setIsResettingScore(true);
+    setScoreResetMessage(null);
+
+    try {
+      const res = await resetClassOrGradeScoreApi(
+        scoreResetTarget.type,
+        scoreResetTarget.value,
+        { clearHistory: clearScoreHistory }
+      );
+      setScoreResetMessage({
+        type: 'success',
+        text: `הניקוד עבור ${scoreResetTarget.title} אופס בהצלחה! (${res.affectedCount} תלמידות עודכנו, סך הכל ${res.previousTotalPoints} נק' אופסו).`,
+      });
+      onRefreshData();
+      setTimeout(() => {
+        setScoreResetTarget(null);
+        setScoreResetMessage(null);
+      }, 1600);
+    } catch (err: any) {
+      console.error(err);
+      setScoreResetMessage({
+        type: 'error',
+        text: err?.message || 'שגיאה באיפוס הניקוד',
+      });
+    } finally {
+      setIsResettingScore(false);
+    }
+  };
+
+  const handleCloseScoreResetModal = () => {
+    if (isResettingScore) return;
+    setScoreResetTarget(null);
+    setScoreResetMessage(null);
+    setClearScoreHistory(false);
+  };
+
   // Managers State
   const [managers, setManagers] = useState<Manager[]>([]);
   const [newManagerEmail, setNewManagerEmail] = useState('');
@@ -662,14 +786,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
   }, []);
 
-  const handlePrizeMilestoneChange = (index: number, field: 'points' | 'title' | 'rewardDescription', value: string | number) => {
+  const handlePrizeMilestoneChange = (
+    index: number,
+    field: 'points' | 'title' | 'rewardDescription' | 'iconName',
+    value: string | number
+  ) => {
     setPrizeMilestones((prev) => prev.map((m, i) => {
       if (i !== index) return m;
       if (field === 'points') {
-        return { ...m, points: Number(value) || 0 };
+        return { ...m, points: Math.max(0, Number(value) || 0) };
       }
       return { ...m, [field]: String(value) };
     }));
+  };
+
+  const handleAddPrizeMilestone = () => {
+    const maxPoints = prizeMilestones.length > 0
+      ? Math.max(...prizeMilestones.map((m) => Number(m.points) || 0))
+      : 0;
+    const nextPoints = maxPoints > 0 ? maxPoints + 25 : 10;
+    setPrizeMilestones((prev) => [
+      ...prev,
+      {
+        points: nextPoints,
+        title: '',
+        rewardDescription: '',
+        iconName: 'Gift',
+      },
+    ]);
+  };
+
+  const handleDeletePrizeMilestone = (index: number) => {
+    if (prizeMilestones.length <= 1) {
+      alert('חייב להישאר לפחות יעד פרס אחד מוגדר במערכת');
+      return;
+    }
+    const target = prizeMilestones[index];
+    const name = target.title || `${target.points} נקודות`;
+    if (window.confirm(`האם את בטוחה שברצונך למחוק את יעד הפרס "${name}"?`)) {
+      setPrizeMilestones((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleResetToDefaultPrizes = () => {
+    if (window.confirm('האם לאפס את רשימת הפרסים לברירת המחדל של המערכת?')) {
+      setPrizeMilestones(DEFAULT_PRIZE_MILESTONES);
+    }
   };
 
   const handleSavePrizeMilestones = async () => {
@@ -679,21 +841,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const normalized = [...prizeMilestones]
         .map((m) => ({
           ...m,
-          points: Number(m.points) || 0,
+          points: Math.max(0, Number(m.points) || 0),
           title: (m.title || '').trim(),
           rewardDescription: (m.rewardDescription || '').trim(),
+          iconName: (m.iconName || 'Award').trim(),
         }))
         .filter((m) => m.title && m.rewardDescription)
         .sort((a, b) => a.points - b.points);
 
       if (normalized.length === 0) {
-        throw new Error('יש להזין לפחות פרס אחד תקין');
+        throw new Error('יש להזין לפחות פרס אחד תקין עם כותרת ותיאור פרס');
       }
 
       await savePrizeMilestonesApi(normalized);
       setPrizeMilestones(normalized);
-      onRefreshData();
-      alert('שינויים בפרסים נשמרו בהצלחה');
+      await onRefreshData();
+      alert('יעדי הפרסים נשמרו בהצלחה!');
     } catch (err: any) {
       setPrizeSaveError(err?.message || 'שגיאה בשמירת פרסים');
     } finally {
@@ -715,6 +878,123 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onRefreshData();
     }
   }, [activeAdminTab]);
+
+  // Collaboration / Suggestions & Feedback State
+  const [suggestions, setSuggestions] = useState<QuestionSuggestion[]>([]);
+  const [feedbackItems, setFeedbackItems] = useState<QuestionFeedback[]>([]);
+  const [isLoadingCollab, setIsLoadingCollab] = useState(false);
+  const [collabSubtab, setCollabSubtab] = useState<'suggestions' | 'feedback'>('suggestions');
+  const [suggestionFilterStatus, setSuggestionFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [feedbackFilterStatus, setFeedbackFilterStatus] = useState<'all' | 'pending' | 'resolved'>('all');
+
+  // Approval modal state
+  const [approvingSuggestion, setApprovingSuggestion] = useState<QuestionSuggestion | null>(null);
+  const [approvalPoints, setApprovalPoints] = useState<number>(10);
+  const [approvalTargetDate, setApprovalTargetDate] = useState<string>('');
+  const [approvalAdminFeedback, setApprovalAdminFeedback] = useState<string>('');
+  const [isSavingApproval, setIsSavingApproval] = useState(false);
+
+  // Reject modal state
+  const [rejectingSuggestion, setRejectingSuggestion] = useState<QuestionSuggestion | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>('');
+  const [isSavingReject, setIsSavingReject] = useState(false);
+
+  // Resolve feedback modal state
+  const [resolvingFeedback, setResolvingFeedback] = useState<QuestionFeedback | null>(null);
+  const [resolveResponse, setResolveResponse] = useState<string>('');
+  const [isSavingResolve, setIsSavingResolve] = useState(false);
+
+  const [collabActionMsg, setCollabActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const loadCollabData = React.useCallback(async () => {
+    setIsLoadingCollab(true);
+    try {
+      const [sugs, fbs] = await Promise.all([
+        fetchQuestionSuggestionsApi(),
+        fetchQuestionFeedbackApi(),
+      ]);
+      setSuggestions(sugs);
+      setFeedbackItems(fbs);
+    } catch (err: any) {
+      console.error('Failed to load suggestions/feedback:', err);
+    } finally {
+      setIsLoadingCollab(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadCollabData();
+  }, [loadCollabData]);
+
+  React.useEffect(() => {
+    if (activeAdminTab === 'suggestions') {
+      loadCollabData();
+    }
+  }, [activeAdminTab, loadCollabData]);
+
+  const pendingSuggestionsCount = suggestions.filter((s) => s.status === 'pending').length;
+  const pendingFeedbackCount = feedbackItems.filter((f) => f.status === 'pending').length;
+  const totalPendingCollab = pendingSuggestionsCount + pendingFeedbackCount;
+
+  const handleApproveSuggestion = async () => {
+    if (!approvingSuggestion) return;
+    setIsSavingApproval(true);
+    setCollabActionMsg(null);
+    try {
+      await approveQuestionSuggestionApi(approvingSuggestion.id, {
+        pointsAwarded: Number(approvalPoints) || 0,
+        targetDate: approvalTargetDate.trim() || undefined,
+        adminFeedback: approvalAdminFeedback.trim() || undefined,
+      });
+      setCollabActionMsg({
+        type: 'success',
+        text: `השאלה בנושא "${approvingSuggestion.topic}" אושרה בהצלחה! הוענקו ${approvalPoints} נקודות בונוס לתלמידה ${approvingSuggestion.studentName}.`,
+      });
+      setApprovingSuggestion(null);
+      setApprovalAdminFeedback('');
+      setApprovalTargetDate('');
+      await loadCollabData();
+      onRefreshData();
+    } catch (err: any) {
+      setCollabActionMsg({ type: 'error', text: err?.message || 'שגיאה באישור ההצעה' });
+    } finally {
+      setIsSavingApproval(false);
+    }
+  };
+
+  const handleRejectSuggestion = async () => {
+    if (!rejectingSuggestion) return;
+    setIsSavingReject(true);
+    setCollabActionMsg(null);
+    try {
+      await rejectQuestionSuggestionApi(rejectingSuggestion.id, rejectReason.trim() || undefined);
+      setCollabActionMsg({ type: 'success', text: 'ההצעה עודכנה כנדחתה.' });
+      setRejectingSuggestion(null);
+      setRejectReason('');
+      await loadCollabData();
+    } catch (err: any) {
+      setCollabActionMsg({ type: 'error', text: err?.message || 'שגיאה בעדכון ההצעה' });
+    } finally {
+      setIsSavingReject(false);
+    }
+  };
+
+  const handleResolveFeedback = async () => {
+    if (!resolvingFeedback) return;
+    setIsSavingResolve(true);
+    setCollabActionMsg(null);
+    try {
+      await resolveQuestionFeedbackApi(resolvingFeedback.id, resolveResponse.trim() || undefined);
+      setCollabActionMsg({ type: 'success', text: 'המשוב סומן כטופל בהצלחה.' });
+      setResolvingFeedback(null);
+      setResolveResponse('');
+      await loadCollabData();
+    } catch (err: any) {
+      setCollabActionMsg({ type: 'error', text: err?.message || 'שגיאה בעדכון המשוב' });
+    } finally {
+      setIsSavingResolve(false);
+    }
+  };
 
   // Student Search / Filter State
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
@@ -1882,6 +2162,23 @@ ${targetHalacha.content}
               <GraduationCap className="w-4 h-4 text-amber-300 shrink-0" />
               <span>כיתות ({classesList.length})</span>
             </button>
+
+            <button
+              onClick={() => setActiveAdminTab('suggestions')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                activeAdminTab === 'suggestions'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-amber-200 hover:bg-white/10'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 text-yellow-300 shrink-0" />
+              <span>הצעות ומשובים</span>
+              {totalPendingCollab > 0 && (
+                <span className="bg-rose-500 text-white font-black text-[10px] px-1.5 py-0.2 rounded-full animate-pulse">
+                  {totalPendingCollab}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -3000,6 +3297,18 @@ ${targetHalacha.content}
                   ))}
                 </select>
 
+                {studentFilterClass !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenScoreResetModal('class', studentFilterClass)}
+                    className="px-2.5 py-1.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                    title={`איפוס ניקוד כיתה ${studentFilterClass}`}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                    <span>איפוס ניקוד כיתה</span>
+                  </button>
+                )}
+
                 <select
                   aria-label="מיון רשימת התלמידות"
                   value={studentSortOrder}
@@ -3945,71 +4254,154 @@ ${targetHalacha.content}
       {activeAdminTab === 'prizes' && (
         <div className="space-y-6">
           <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-sm space-y-6">
-            <div className="border-b border-amber-100 pb-3">
-              <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
-                <Crown className="w-5 h-5 text-amber-600" />
-                <span>עריכת פרסים ונקודות</span>
-              </h3>
-              <p className="text-xs text-amber-800">
-                ניתן לערוך את רף הנקודות ותיאור הפרסים שיוצגו בתהליכים, בלוח המובילים ובדוח הפרסים.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {prizeMilestones.map((milestone, index) => (
-                <div key={`${milestone.title}-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 p-3 rounded-2xl border border-amber-200 bg-amber-50/40">
-                  <div className="md:col-span-2">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">נקודות</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={milestone.points}
-                      onChange={(e) => handlePrizeMilestoneChange(index, 'points', e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">כותרת</label>
-                    <input
-                      type="text"
-                      value={milestone.title}
-                      onChange={(e) => handlePrizeMilestoneChange(index, 'title', e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-                  <div className="md:col-span-7">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">תיאור פרס</label>
-                    <input
-                      type="text"
-                      value={milestone.rewardDescription}
-                      onChange={(e) => handlePrizeMilestoneChange(index, 'rewardDescription', e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-              ))}
-
-              {prizeSaveError && (
-                <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                  {prizeSaveError}
+            <div className="border-b border-amber-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-600" />
+                  <span>ניהול והגדרת פרסים ויעדים</span>
+                </h3>
+                <p className="text-xs text-amber-800">
+                  הגדירי את רף הנקודות, שמות היעדים, תיאור הפרסים וסוגי האייקונים. הפרסים יוצגו לתלמידות בלוח האישי, בסיום חידון ובדוח הזכיות.
                 </p>
-              )}
+              </div>
 
-              <div className="flex justify-end">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={handleSavePrizeMilestones}
-                  disabled={isSavingPrizes}
-                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white bg-amber-700 hover:bg-amber-800 shadow-sm disabled:opacity-50"
+                  onClick={handleResetToDefaultPrizes}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="שחזור רשימת פרסי ברירת המחדל"
                 >
-                  {isSavingPrizes ? 'שומר פרסים...' : 'שמור פרסים'}
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>שחזור ברירת מחדל</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddPrizeMilestone}
+                  className="px-4 py-2 rounded-xl text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>הוסף יעד פרס חדש</span>
                 </button>
               </div>
             </div>
 
-            <div className="border-t border-amber-100 pt-4 space-y-3">
-              <h4 className="font-extrabold text-amber-950 text-sm">
-                תלמידות שהגיעו ליעד פרס אישי:
+            <div className="space-y-3">
+              {prizeMilestones.map((milestone, index) => (
+                <div
+                  key={`milestone-${index}`}
+                  className="p-4 rounded-2xl border border-amber-200 bg-amber-50/50 hover:bg-amber-50/80 transition-all space-y-3 shadow-xs"
+                >
+                  <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-500 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                        {renderAdminPrizeIcon(milestone.iconName || 'Award', 'w-4 h-4')}
+                      </div>
+                      <span className="text-xs font-extrabold text-amber-950 font-['Heebo']">
+                        יעד פרס #{index + 1}: {milestone.title ? milestone.title : '(ללא כותרת)'} ({milestone.points} נק')
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePrizeMilestone(index)}
+                      className="text-rose-600 hover:text-rose-800 hover:bg-rose-100 p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold"
+                      title="מחק יעד פרס זה"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">מחיקה</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">רף נקודות</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={milestone.points}
+                        onChange={(e) => handlePrizeMilestoneChange(index, 'points', e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">סוג סמל / אייקון</label>
+                      <select
+                        value={milestone.iconName || 'Award'}
+                        onChange={(e) => handlePrizeMilestoneChange(index, 'iconName', e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white cursor-pointer"
+                      >
+                        <option value="Award">🏅 מדליה / הצטיינות</option>
+                        <option value="Crown">👑 כתר תורה</option>
+                        <option value="Trophy">🏆 גביע ניצחון</option>
+                        <option value="Gift">🎁 מתנה / שי</option>
+                        <option value="Star">⭐ כוכב הצטיינות</option>
+                        <option value="Sparkles">✨ ניצוץ מיוחד</option>
+                        <option value="BookOpen">📖 ספר קודש</option>
+                        <option value="Bookmark">🔖 סימניה</option>
+                        <option value="Heart">❤️ לב / הערכה</option>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">כותרת היעד</label>
+                      <input
+                        type="text"
+                        placeholder="למשל: אלופת ההלכה"
+                        value={milestone.title}
+                        onChange={(e) => handlePrizeMilestoneChange(index, 'title', e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-4">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">תיאור הפרס והזכייה</label>
+                      <input
+                        type="text"
+                        placeholder="למשל: ספר הלכה יוקרתי עם הקדשה אישית"
+                        value={milestone.rewardDescription}
+                        onChange={(e) => handlePrizeMilestoneChange(index, 'rewardDescription', e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleAddPrizeMilestone}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-extrabold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>הוסף יעד פרס נוסף</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSavePrizeMilestones}
+                  disabled={isSavingPrizes}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-xs font-black text-white bg-amber-700 hover:bg-amber-800 shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSavingPrizes ? 'שומר שינויים...' : 'שמור שינויים בפרסים'}</span>
+                </button>
+              </div>
+
+              {prizeSaveError && (
+                <p className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200">
+                  {prizeSaveError}
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-amber-100 pt-5 space-y-3">
+              <h4 className="font-extrabold text-amber-950 text-sm flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-amber-600" />
+                <span>תלמידות שהגיעו ליעד פרס אישי:</span>
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4041,7 +4433,7 @@ ${targetHalacha.content}
                             key={m.points}
                             className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1"
                           >
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            {renderAdminPrizeIcon(m.iconName, 'w-3.5 h-3.5 text-emerald-700 shrink-0')}
                             <span>
                               {m.title} ({m.points} נק')
                             </span>
@@ -4355,6 +4747,79 @@ ${targetHalacha.content}
             </form>
           </div>
 
+          {/* Grade Cohorts Management & Reset */}
+          <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-3">
+              <div>
+                <h4 className="text-base font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-amber-600" />
+                  <span>שכבות האולפנה ואיפוס ניקוד שכבתי</span>
+                </h4>
+                <p className="text-xs text-amber-800">
+                  ניהול הניקוד המצטבר לפי שכבה (ט', י', י״א, י״ב). ניתן לאפס את ניקוד כל השכבה לתחילת תקופת מבצע חדשה.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {availableGrades.map((g) => {
+                const gStudents = students.filter(
+                  (s) => !s.managerParticipation && ((s.grade || '').trim() === g || inferGradeFromClass(s.className || '') === g)
+                );
+                const gPoints = gStudents.reduce((sum, s) => sum + (s.points || 0), 0);
+                const gClasses = classesList.filter((cls) => inferGradeFromClass(cls) === g);
+
+                return (
+                  <div
+                    key={g}
+                    className="bg-gradient-to-br from-amber-50/60 to-orange-50/40 border border-amber-200/80 p-4 rounded-2xl flex flex-col justify-between space-y-3 shadow-2xs hover:shadow-xs transition-all"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center font-black text-sm shadow-2xs">
+                            {g}'
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-slate-900 text-base block">
+                              שכבת {g}'
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-semibold">
+                              {gClasses.length > 0 ? gClasses.join(', ') : 'אין כיתות מוגדרות'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-100 text-xs">
+                        <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                          <span className="text-[10px] text-slate-500 block font-bold">תלמידות</span>
+                          <span className="text-sm font-black text-slate-800">{gStudents.length}</span>
+                        </div>
+                        <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                          <span className="text-[10px] text-amber-700 block font-bold">ניקוד שכבה</span>
+                          <span className="text-sm font-black text-amber-950 font-['Heebo']">{gPoints} נק׳</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-amber-100">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenScoreResetModal('grade', g)}
+                        className="w-full py-2 px-3 rounded-xl text-xs font-extrabold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        title={`איפוס ניקוד שכבת ${g}' ל-0`}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                        <span>איפוס ניקוד שכבה</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Classes Grid */}
           <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-xs space-y-4">
             <h4 className="text-sm font-extrabold text-amber-950 font-['Heebo']">
@@ -4363,7 +4828,9 @@ ${targetHalacha.content}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {classesList.map((cls) => {
-                const count = students.filter((s) => s.className === cls).length;
+                const clsStudents = students.filter((s) => s.className === cls && !s.managerParticipation);
+                const count = clsStudents.length;
+                const clsPoints = clsStudents.reduce((sum, s) => sum + (s.points || 0), 0);
                 const derivedGrade = inferGradeFromClass(cls);
                 return (
                   <div
@@ -4395,11 +4862,27 @@ ${targetHalacha.content}
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-amber-100 text-xs">
-                      <span className="text-slate-500 font-semibold flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-amber-700" />
-                        <span>{count} תלמידות</span>
-                      </span>
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-100 text-xs">
+                      <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                        <span className="text-[10px] text-slate-500 block font-bold">תלמידות</span>
+                        <span className="text-sm font-black text-slate-800">{count}</span>
+                      </div>
+                      <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                        <span className="text-[10px] text-amber-700 block font-bold">ניקוד כיתתי</span>
+                        <span className="text-sm font-black text-amber-950 font-['Heebo']">{clsPoints} נק׳</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-amber-100 text-xs gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenScoreResetModal('class', cls)}
+                        className="py-1.5 px-2.5 rounded-lg text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/70 transition-colors flex items-center gap-1 cursor-pointer"
+                        title={`איפוס ניקוד כיתה ${cls}`}
+                      >
+                        <RotateCcw className="w-3 h-3 text-rose-600" />
+                        <span>איפוס ניקוד</span>
+                      </button>
 
                       {count > 0 && (
                         <button
@@ -4408,9 +4891,10 @@ ${targetHalacha.content}
                             setStudentFilterClass(cls);
                             setActiveAdminTab('students');
                           }}
-                          className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline"
+                          className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline flex items-center gap-0.5"
                         >
-                          צפה בתלמידות ←
+                          <span>תלמידות</span>
+                          <span>←</span>
                         </button>
                       )}
                     </div>
@@ -4485,6 +4969,770 @@ ${targetHalacha.content}
               </span>
             </button>
           </form>
+        </div>
+      )}
+
+      {/* ====================================================
+          TAB: SUGGESTIONS & FEEDBACK (שיתוף פעולה עם תלמידות)
+      ==================================================== */}
+      {activeAdminTab === 'suggestions' && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Header Card */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-amber-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <MessageSquare className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
+                    <span>הצעות ומשובים מהתלמידות</span>
+                    {totalPendingCollab > 0 && (
+                      <span className="text-xs bg-rose-500 text-white font-extrabold px-2.5 py-0.5 rounded-full">
+                        {totalPendingCollab} ממתינים לבדיקה
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-amber-800">
+                    אישור שאלות הלכה מקוריות שנכתבו ע"י התלמידות ותגמול בנקודות בונוס, ומענה להשגות והערות על שאלות החידון.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadCollabData}
+                disabled={isLoadingCollab}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 self-start sm:self-auto cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCollab ? 'animate-spin' : ''}`} />
+                <span>{isLoadingCollab ? 'מרענן...' : 'רענון רשימה'}</span>
+              </button>
+            </div>
+
+            {/* Success / Error Message Banner */}
+            {collabActionMsg && (
+              <div
+                className={`p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in ${
+                  collabActionMsg.type === 'success'
+                    ? 'bg-emerald-50 border border-emerald-300 text-emerald-900'
+                    : 'bg-rose-50 border border-rose-300 text-rose-900'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {collabActionMsg.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{collabActionMsg.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCollabActionMsg(null)}
+                  className="p-1 hover:bg-black/5 rounded-lg"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Sub-tab Navigation */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCollabSubtab('suggestions')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                  collabSubtab === 'suggestions'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>הצעות שאלות הלכה ({suggestions.length})</span>
+                {pendingSuggestionsCount > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse">
+                    {pendingSuggestionsCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCollabSubtab('feedback')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                  collabSubtab === 'feedback'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>משובים והשגות על שאלות ({feedbackItems.length})</span>
+                {pendingFeedbackCount > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse">
+                    {pendingFeedbackCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* SUBTAB 1: QUESTION SUGGESTIONS */}
+          {collabSubtab === 'suggestions' && (
+            <div className="space-y-4">
+              {/* Filter chips */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+                <span className="text-slate-500 font-bold shrink-0">סינון לפי סטטוס:</span>
+                {(
+                  [
+                    { id: 'all', label: `הכל (${suggestions.length})` },
+                    { id: 'pending', label: `ממתינים (${pendingSuggestionsCount})` },
+                    {
+                      id: 'approved',
+                      label: `אושר (${suggestions.filter((s) => s.status === 'approved').length})`,
+                    },
+                    {
+                      id: 'rejected',
+                      label: `נדחה (${suggestions.filter((s) => s.status === 'rejected').length})`,
+                    },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSuggestionFilterStatus(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer shrink-0 ${
+                      suggestionFilterStatus === tab.id
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white border border-amber-200 text-amber-900 hover:bg-amber-50'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Suggestions List */}
+              {(() => {
+                const filtered = suggestions.filter((s) => {
+                  if (suggestionFilterStatus === 'all') return true;
+                  return s.status === suggestionFilterStatus;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="bg-white rounded-3xl p-8 border border-amber-200 text-center text-slate-500 space-y-2">
+                      <Sparkles className="w-8 h-8 text-amber-400 mx-auto" />
+                      <p className="font-bold text-sm">אין הצעות שאלות להצגה בסטטוס זה</p>
+                      <p className="text-xs text-slate-400">
+                        כאשר תלמידות יציעו שאלות הלכה דרך האפליקציה, הן יופיעו כאן לבדיקה ואישור.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filtered.map((sug) => {
+                      const isPending = sug.status === 'pending';
+                      const isApproved = sug.status === 'approved';
+                      const isRejected = sug.status === 'rejected';
+
+                      return (
+                        <div
+                          key={sug.id}
+                          className={`bg-white rounded-3xl p-5 border shadow-xs space-y-4 flex flex-col justify-between transition-all ${
+                            isPending
+                              ? 'border-amber-300 ring-2 ring-amber-200/50'
+                              : isApproved
+                              ? 'border-emerald-200 bg-emerald-50/10'
+                              : 'border-slate-200 bg-slate-50/40 opacity-80'
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            {/* Card Top: Student details & status badge */}
+                            <div className="flex items-start justify-between gap-2 border-b border-amber-100 pb-3">
+                              <div>
+                                <h4 className="font-extrabold text-sm text-amber-950 font-['Heebo'] flex items-center gap-1.5">
+                                  <span>{sug.studentName}</span>
+                                  <span className="text-xs text-amber-700 font-semibold">
+                                    (כיתה {sug.className})
+                                  </span>
+                                </h4>
+                                <p className="text-[11px] text-slate-500 font-mono">
+                                  {sug.studentEmail} • {new Date(sug.createdAt).toLocaleDateString('he-IL')}
+                                </p>
+                              </div>
+
+                              <span
+                                className={`text-[11px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                                  isPending
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                    : isApproved
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                    : 'bg-rose-100 text-rose-900 border-rose-300'
+                                }`}
+                              >
+                                {isPending && '⏳ ממתין לבדיקה'}
+                                {isApproved && `✓ אושר (+${sug.pointsAwarded || 0} נק')`}
+                                {isRejected && '✕ נדחה'}
+                              </span>
+                            </div>
+
+                            {/* Topic & Source */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                נושא: {sug.topic}
+                              </span>
+                              {sug.source && (
+                                <span className="bg-slate-100 text-slate-700 text-xs font-semibold px-2.5 py-0.5 rounded-lg border border-slate-200">
+                                  מקור: {sug.source}
+                                </span>
+                              )}
+                              {sug.targetDate && (
+                                <span className="bg-indigo-100 text-indigo-900 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-indigo-200">
+                                  📅 מיועד לתאריך: {sug.targetDate}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Question text */}
+                            <div className="bg-amber-50/40 p-3 rounded-2xl border border-amber-100 text-slate-900 font-bold text-xs sm:text-sm leading-relaxed">
+                              {sug.questionText}
+                            </div>
+
+                            {/* Options with correct answer highlighted */}
+                            <div className="space-y-1.5 text-xs">
+                              {sug.options.map((opt, oIdx) => {
+                                const isCorrect = oIdx === sug.correctOptionIndex;
+                                return (
+                                  <div
+                                    key={oIdx}
+                                    className={`p-2 rounded-xl flex items-center gap-2 font-medium border ${
+                                      isCorrect
+                                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold shadow-2xs'
+                                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                        isCorrect
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'bg-slate-200 text-slate-700'
+                                      }`}
+                                    >
+                                      {['א', 'ב', 'ג', 'ד'][oIdx]}
+                                    </span>
+                                    <span className="flex-1">{opt}</span>
+                                    {isCorrect && (
+                                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.2 rounded-md">
+                                        תשובה נכונה
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Explanation */}
+                            {sug.explanation && (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
+                                <span className="font-bold text-slate-700 block">💡 הסבר הלכתי:</span>
+                                <p>{sug.explanation}</p>
+                              </div>
+                            )}
+
+                            {/* Admin Feedback note (if reviewed) */}
+                            {sug.adminFeedback && (
+                              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-0.5">
+                                <span className="font-bold block">💬 משוב מנהלת לתלמידה:</span>
+                                <p>{sug.adminFeedback}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Action Footer */}
+                          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const copyContent = `נושא: ${sug.topic}\nשאלה: ${sug.questionText}\nא. ${sug.options[0]}\nב. ${sug.options[1]}\nג. ${sug.options[2]}\nד. ${sug.options[3]}\nתשובה נכונה: ${['א', 'ב', 'ג', 'ד'][sug.correctOptionIndex]} (${sug.options[sug.correctOptionIndex]})\nהסבר: ${sug.explanation || '—'}\nנכתב ע"י: ${sug.studentName} (${sug.className})`;
+                                navigator.clipboard.writeText(copyContent);
+                                alert('פרטי השאלה הועתקו ללוח בהצלחה!');
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>העתק שאלה</span>
+                            </button>
+
+                            {isPending && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setApprovingSuggestion(sug);
+                                    setApprovalPoints(10);
+                                    setApprovalTargetDate(sug.targetDate || '');
+                                    setApprovalAdminFeedback('');
+                                  }}
+                                  className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>אשר והענק נקודות</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRejectingSuggestion(sug);
+                                    setRejectReason('');
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>דחה</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* SUBTAB 2: QUESTION FEEDBACK & CORRECTIONS */}
+          {collabSubtab === 'feedback' && (
+            <div className="space-y-4">
+              {/* Filter chips */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+                <span className="text-slate-500 font-bold shrink-0">סינון לפי סטטוס:</span>
+                {(
+                  [
+                    { id: 'all', label: `הכל (${feedbackItems.length})` },
+                    { id: 'pending', label: `פתוחים (${pendingFeedbackCount})` },
+                    {
+                      id: 'resolved',
+                      label: `טופלו (${feedbackItems.filter((f) => f.status === 'resolved').length})`,
+                    },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setFeedbackFilterStatus(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer shrink-0 ${
+                      feedbackFilterStatus === tab.id
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white border border-amber-200 text-amber-900 hover:bg-amber-50'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Feedback List */}
+              {(() => {
+                const filtered = feedbackItems.filter((f) => {
+                  if (feedbackFilterStatus === 'all') return true;
+                  return f.status === feedbackFilterStatus;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="bg-white rounded-3xl p-8 border border-amber-200 text-center text-slate-500 space-y-2">
+                      <MessageSquare className="w-8 h-8 text-amber-400 mx-auto" />
+                      <p className="font-bold text-sm">אין משובים או השגות בסטטוס זה</p>
+                      <p className="text-xs text-slate-400">
+                        כאשר תלמידות ידווחו על טעות ניסוח, הערה הלכתית או הצעה לשאלה, הן יופיעו כאן.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filtered.map((fb) => {
+                      const isPending = fb.status === 'pending';
+                      const isResolved = fb.status === 'resolved';
+
+                      const isGeneral = fb.questionId === 'general';
+                      const isHalacha = fb.questionId === 'daily-halacha';
+
+                      const typeLabels: Record<QuestionFeedbackType, { label: string; icon: string }> = {
+                        halachic_note: { label: isGeneral ? 'הערה על ההלכות' : 'הערה הלכתית / מקור', icon: '📜' },
+                        error_report: { label: isGeneral ? 'דיווח על תקלה' : 'טעות ניסוח / הגהה', icon: '✍️' },
+                        suggestion: { label: isGeneral ? 'הצעת שיפור / רעיון חדש' : 'הצעה לשיפור השאלה', icon: '💡' },
+                        other: { label: 'נושא אחר', icon: '💬' },
+                      };
+                      const typeInfo = typeLabels[fb.feedbackType] || typeLabels.other;
+
+                      return (
+                        <div
+                          key={fb.id}
+                          className={`bg-white rounded-3xl p-5 border shadow-xs space-y-4 flex flex-col justify-between transition-all ${
+                            isPending
+                              ? 'border-amber-300 ring-2 ring-amber-200/50'
+                              : 'border-emerald-200 bg-emerald-50/10'
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            {/* Card Top: Student & Status */}
+                            <div className="flex items-start justify-between gap-2 border-b border-amber-100 pb-3">
+                              <div>
+                                <h4 className="font-extrabold text-sm text-amber-950 font-['Heebo'] flex items-center gap-1.5">
+                                  <span>{fb.studentName}</span>
+                                  <span className="text-xs text-amber-700 font-semibold">
+                                    (כיתה {fb.className})
+                                  </span>
+                                </h4>
+                                <p className="text-[11px] text-slate-500 font-mono">
+                                  {fb.studentEmail} • {new Date(fb.createdAt).toLocaleDateString('he-IL')}
+                                </p>
+                              </div>
+
+                              <span
+                                className={`text-[11px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                                  isPending
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                    : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                }`}
+                              >
+                                {isPending ? '⏳ ממתין לטיפול' : '✓ טופל'}
+                              </span>
+                            </div>
+
+                            {/* Type and Date Badges */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isGeneral ? (
+                                <span className="bg-purple-100 text-purple-900 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-purple-200">
+                                  🌟 הצעת שיפור לאפליקציה
+                                </span>
+                              ) : isHalacha ? (
+                                <span className="bg-blue-100 text-blue-900 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-blue-200">
+                                  📖 משוב על ההלכה היומית
+                                </span>
+                              ) : (
+                                <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                  ❓ שאלת חידון
+                                </span>
+                              )}
+
+                              <span className="bg-amber-50 text-amber-950 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-amber-200 flex items-center gap-1">
+                                <span>{typeInfo.icon}</span>
+                                <span>{typeInfo.label}</span>
+                              </span>
+                              <span className="bg-slate-100 text-slate-700 text-xs font-semibold px-2.5 py-0.5 rounded-lg border border-slate-200">
+                                {isGeneral ? `תאריך פנייה: ${fb.date}` : `תאריך חידון: ${fb.date}`}
+                              </span>
+                            </div>
+
+                            {/* Context */}
+                            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
+                              <span className="font-bold text-slate-500 block">
+                                {isGeneral
+                                  ? 'נושא הפנייה:'
+                                  : isHalacha
+                                  ? 'ההלכה היומית אליה מתייחס המשוב:'
+                                  : 'השאלה אליה מתייחס המשוב:'}
+                              </span>
+                              <p className="font-bold text-slate-900">{fb.questionText}</p>
+                            </div>
+
+                            {/* Comment */}
+                            <div className="p-3 bg-amber-50/60 rounded-2xl border border-amber-200 text-xs space-y-1">
+                              <span className="font-bold text-amber-900 block">תוכן המשוב / ההערה:</span>
+                              <p className="text-slate-800 leading-relaxed whitespace-pre-line font-medium">
+                                "{fb.comment}"
+                              </p>
+                            </div>
+
+                            {/* Admin Response if resolved */}
+                            {fb.adminResponse && (
+                              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs space-y-1">
+                                <span className="font-bold text-emerald-900 block">מענה מנהלת:</span>
+                                <p className="text-emerald-950">{fb.adminResponse}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Footer */}
+                          {isPending && (
+                            <div className="pt-3 border-t border-slate-100 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setResolvingFeedback(fb);
+                                  setResolveResponse('');
+                                }}
+                                className="px-4 py-2 rounded-xl text-xs font-extrabold text-white bg-amber-600 hover:bg-amber-700 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Check className="w-4 h-4" />
+                                <span>סמן כטופל / הוסף מענה</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: APPROVE QUESTION SUGGESTION
+      ==================================================== */}
+      {approvingSuggestion && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-amber-200 p-5 sm:p-7 space-y-5 my-auto">
+            <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-amber-950 font-['Heebo']">
+                    אישור שאלת הלכה והענקת בונוס
+                  </h3>
+                  <p className="text-xs text-amber-800">
+                    {approvingSuggestion.studentName} (כיתה {approvingSuggestion.className})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApprovingSuggestion(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 space-y-1">
+                <span className="font-bold text-amber-950 block">נוסח השאלה:</span>
+                <p className="text-slate-800 font-semibold">{approvingSuggestion.questionText}</p>
+              </div>
+
+              {/* Bonus points selector */}
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
+                  כמה נקודות בונוס להעניק לתלמידה?
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[5, 10, 15, 20].map((pts) => (
+                    <button
+                      key={pts}
+                      type="button"
+                      onClick={() => setApprovalPoints(pts)}
+                      className={`p-2.5 rounded-xl border text-center font-extrabold text-xs transition-all cursor-pointer ${
+                        approvalPoints === pts
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      +{pts} נק'
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Target Date (optional) */}
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
+                  תאריך יעד לשיבוץ בחידון (אופציונלי)
+                </label>
+                <input
+                  type="date"
+                  value={approvalTargetDate}
+                  onChange={(e) => setApprovalTargetDate(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-amber-300 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Admin feedback note */}
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
+                  מילות הערכה / משוב לתלמידה (אופציונלי)
+                </label>
+                <textarea
+                  rows={2}
+                  value={approvalAdminFeedback}
+                  onChange={(e) => setApprovalAdminFeedback(e.target.value)}
+                  placeholder="לדוגמה: יישר כוח עצום על שאלה יפה ומדויקת! השאלה תופיע בחידון היומי."
+                  className="w-full p-2.5 rounded-xl border border-amber-300 text-xs text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-amber-100">
+              <button
+                type="button"
+                onClick={() => setApprovingSuggestion(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ביטול
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingApproval}
+                onClick={handleApproveSuggestion}
+                className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isSavingApproval ? 'מאשר ומעדכן נקודות...' : 'אישור והענקת נקודות ✨'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: REJECT QUESTION SUGGESTION
+      ==================================================== */}
+      {rejectingSuggestion && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-5 sm:p-7 space-y-5 my-auto">
+            <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
+                  <X className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-amber-950 font-['Heebo']">
+                    דחיית הצעת שאלה
+                  </h3>
+                  <p className="text-xs text-amber-800">{rejectingSuggestion.studentName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectingSuggestion(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-slate-700">
+                ההצעה תסומן כ"נדחתה" ולא יינתנו עבורה נקודות בונוס.
+              </p>
+
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
+                  סיבת הדחייה / משוב לתלמידה (אופציונלי)
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="לדוגמה: שאלה זו כבר הופיעה בחידון בעבר / התשובה אינה מוסכמת הלכתית..."
+                  className="w-full p-2.5 rounded-xl border border-amber-300 text-xs text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-amber-100">
+              <button
+                type="button"
+                onClick={() => setRejectingSuggestion(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ביטול
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingReject}
+                onClick={handleRejectSuggestion}
+                className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+                <span>{isSavingReject ? 'מעדכן...' : 'דחה הצעה'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: RESOLVE FEEDBACK
+      ==================================================== */}
+      {resolvingFeedback && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-amber-200 p-5 sm:p-7 space-y-5 my-auto">
+            <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                  <Check className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-amber-950 font-['Heebo']">
+                    סימון משוב כטופל
+                  </h3>
+                  <p className="text-xs text-amber-800">{resolvingFeedback.studentName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResolvingFeedback(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 space-y-1">
+                <span className="font-bold text-amber-950 block">משוב התלמידה:</span>
+                <p className="text-slate-800">"{resolvingFeedback.comment}"</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
+                  מענה / הערת טיפול (אופציונלי)
+                </label>
+                <textarea
+                  rows={3}
+                  value={resolveResponse}
+                  onChange={(e) => setResolveResponse(e.target.value)}
+                  placeholder="לדוגמה: תודה רבה על תשומת הלב! הניסוח תוקן / נבדק עם הרב."
+                  className="w-full p-2.5 rounded-xl border border-amber-300 text-xs text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-amber-100">
+              <button
+                type="button"
+                onClick={() => setResolvingFeedback(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ביטול
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingResolve}
+                onClick={handleResolveFeedback}
+                className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isSavingResolve ? 'שומר...' : 'סמן כטופל'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -4994,6 +6242,138 @@ ${targetHalacha.content}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 סגור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          MODAL: CLASS & GRADE SCORE RESET CONFIRMATION
+      ==================================================== */}
+      {scoreResetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-6 shadow-2xl border border-amber-200 animate-in fade-in zoom-in-95"
+            dir="rtl"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-amber-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900 font-['Heebo']">
+                    איפוס ניקוד {scoreResetTarget.title}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {scoreResetTarget.type === 'class' ? 'איפוס ניקוד כיתתי' : 'איפוס ניקוד שכבתית (לכל הכיתות בשכבה)'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseScoreResetModal}
+                disabled={isResettingScore}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2 text-xs">
+                <div className="flex items-start gap-2 text-amber-900 font-medium leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <span>
+                    פעולה זו תאפס את הניקוד המצטבר של כל תלמידות ה{scoreResetTarget.type === 'class' ? 'כיתה' : 'שכבה'} ל-<strong>0 נקודות</strong>.
+                    השינוי ישתקף מיד בלוח המובילים (ליגת כיתות / ליגת שכבות) ובפרופילי התלמידות.
+                  </span>
+                </div>
+              </div>
+
+              {/* Impact stats box */}
+              <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+                <div>
+                  <span className="block text-[11px] font-bold text-slate-500">תלמידות שיושפעו</span>
+                  <span className="text-lg font-black text-slate-900">
+                    {scoreResetTarget.studentCount} תלמידות
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[11px] font-bold text-slate-500">סך ניקוד שיתאפס</span>
+                  <span className="text-lg font-black text-amber-700">
+                    {scoreResetTarget.totalPoints} נק׳
+                  </span>
+                </div>
+              </div>
+
+              {/* Clear history checkbox option */}
+              <label className="flex items-start gap-3 p-3 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearScoreHistory}
+                  onChange={(e) => setClearScoreHistory(e.target.checked)}
+                  disabled={isResettingScore}
+                  className="mt-0.5 rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-slate-800 block">
+                    לאפס גם את היסטוריית החידונים שהושלמו
+                  </span>
+                  <span className="text-slate-500 text-[11px] block mt-0.5">
+                    סימון אפשרות זו יאפשר לתלמידות לגשת שוב לחידונים שהוגשו בעבר. (ברירת מחדל: לא מסומן – רק הניקוד מתאפס, ההגשות נשמרות).
+                  </span>
+                </div>
+              </label>
+
+              {scoreResetMessage && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                    scoreResetMessage.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {scoreResetMessage.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{scoreResetMessage.text}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCloseScoreResetModal}
+                disabled={isResettingScore}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmScoreReset}
+                disabled={isResettingScore || scoreResetTarget.studentCount === 0}
+                className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-rose-600 hover:bg-rose-700 transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isResettingScore ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>מאפס ניקוד...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    <span>אשר איפוס ניקוד ל-0</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

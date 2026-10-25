@@ -19,6 +19,10 @@ service cloud.firestore {
     //   advance-quiz dates generated with Hebcal; manager-only writes.
     // - settings/{id}: shared configuration (classes, prizeMilestones,
     //   dailyQuizDedication, calendarAnnotations); public reads and manager writes.
+    // - questionSuggestions/{id}: student-suggested questions and halachot;
+    //   created by authenticated students, reviewed/updated by managers.
+    // - questionFeedback/{id}: student feedback and error reports on specific questions;
+    //   created by authenticated students, reviewed/resolved by managers.
     // Every path not explicitly matched below is denied.
     
     // Manager document IDs are normalized from lowercase email addresses.
@@ -292,6 +296,65 @@ service cloud.firestore {
         affectedKeys.hasAll(['status']);
     }
 
+    function isValidQuestionSuggestion(data) {
+      return data.keys().hasAll([
+          'studentId', 'studentName', 'className', 'grade', 'topic',
+          'questionText', 'options', 'correctOptionIndex', 'status', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'studentId', 'studentName', 'studentEmail', 'className',
+          'grade', 'topic', 'source', 'questionText', 'options',
+          'correctOptionIndex', 'explanation', 'status', 'pointsAwarded',
+          'adminFeedback', 'targetDate', 'createdAt', 'reviewedAt', 'reviewedBy'
+        ]) &&
+        data.studentId is string && data.studentId.size() > 0 && data.studentId.size() <= 150 &&
+        data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120 &&
+        data.className is string && data.className.size() > 0 && data.className.size() <= 40 &&
+        data.grade in ['ט', 'י', 'יא', 'יב'] &&
+        data.topic is string && data.topic.size() > 0 && data.topic.size() <= 500 &&
+        (!('source' in data) || (data.source is string && data.source.size() <= 200)) &&
+        data.questionText is string && data.questionText.size() > 0 && data.questionText.size() <= 500 &&
+        data.options is list && data.options.size() == 4 &&
+        data.correctOptionIndex is int && data.correctOptionIndex >= 0 && data.correctOptionIndex <= 3 &&
+        (!('explanation' in data) || (data.explanation is string && data.explanation.size() <= 500)) &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        (!('studentEmail' in data) || (data.studentEmail is string && data.studentEmail.size() <= 254)) &&
+        (!('pointsAwarded' in data) || (data.pointsAwarded is int && data.pointsAwarded >= 0 && data.pointsAwarded <= 100)) &&
+        (!('adminFeedback' in data) || (data.adminFeedback is string && data.adminFeedback.size() <= 500)) &&
+        (!('targetDate' in data) || (data.targetDate is string && data.targetDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))) &&
+        (!('reviewedAt' in data) || (data.reviewedAt is string && data.reviewedAt.size() <= 50)) &&
+        (!('reviewedBy' in data) || (data.reviewedBy is string && data.reviewedBy.size() <= 120));
+    }
+
+    function isValidQuestionFeedback(data) {
+      return data.keys().hasAll([
+          'date', 'questionId', 'questionText', 'studentId', 'studentName',
+          'className', 'feedbackType', 'comment', 'status', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'date', 'halachaId', 'halachaTitle', 'questionId', 'questionText',
+          'studentId', 'studentName', 'studentEmail', 'className', 'feedbackType',
+          'comment', 'status', 'createdAt', 'resolvedAt', 'resolvedBy', 'adminResponse'
+        ]) &&
+        data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.questionId is string && data.questionId.size() > 0 && data.questionId.size() <= 100 &&
+        data.questionText is string && data.questionText.size() > 0 && data.questionText.size() <= 500 &&
+        data.studentId is string && data.studentId.size() > 0 && data.studentId.size() <= 150 &&
+        data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120 &&
+        data.className is string && data.className.size() > 0 && data.className.size() <= 40 &&
+        data.feedbackType in ['error_report', 'halachic_note', 'suggestion', 'other'] &&
+        data.comment is string && data.comment.size() > 0 && data.comment.size() <= 1000 &&
+        data.status in ['pending', 'reviewed', 'resolved'] &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        (!('studentEmail' in data) || (data.studentEmail is string && data.studentEmail.size() <= 254)) &&
+        (!('halachaId' in data) || (data.halachaId is string && data.halachaId.size() <= 100)) &&
+        (!('halachaTitle' in data) || (data.halachaTitle is string && data.halachaTitle.size() <= 500)) &&
+        (!('resolvedAt' in data) || (data.resolvedAt is string && data.resolvedAt.size() <= 50)) &&
+        (!('resolvedBy' in data) || (data.resolvedBy is string && data.resolvedBy.size() <= 120)) &&
+        (!('adminResponse' in data) || (data.adminResponse is string && data.adminResponse.size() <= 500));
+    }
+
     // 1. Halachot & Quizzes: Publicly readable for students, Admin-only write
     match /halachot/{halachaId} {
       allow read: if true;
@@ -359,6 +422,50 @@ service cloud.firestore {
       allow create, update: if isValidPublicStudentSummary(request.resource.data) &&
         request.resource.data.id == studentId &&
         (isAdmin() || hasMatchingPublicSummary(studentId));
+      allow delete: if isAdmin();
+    }
+
+    // 6. Question Suggestions (student-generated questions)
+    match /questionSuggestions/{suggestionId} {
+      allow read: if isAdmin() || (
+        request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        resource.data.studentEmail is string &&
+        request.auth.token.email.lower() == resource.data.studentEmail.lower()
+      );
+      allow create: if (isAdmin() || (
+        request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        isGmailAccount(request.auth.token.email.lower()) &&
+        request.resource.data.status == 'pending' &&
+        (!('studentEmail' in request.resource.data) ||
+          request.resource.data.studentEmail.lower() == request.auth.token.email.lower())
+      )) && isValidQuestionSuggestion(request.resource.data);
+      allow update: if isAdmin() && isValidQuestionSuggestion(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 7. Question Feedback (student error reports & halachic notes on questions)
+    match /questionFeedback/{feedbackId} {
+      allow read: if isAdmin() || (
+        request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        resource.data.studentEmail is string &&
+        request.auth.token.email.lower() == resource.data.studentEmail.lower()
+      );
+      allow create: if (isAdmin() || (
+        request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        isGmailAccount(request.auth.token.email.lower()) &&
+        request.resource.data.status == 'pending' &&
+        (!('studentEmail' in request.resource.data) ||
+          request.resource.data.studentEmail.lower() == request.auth.token.email.lower())
+      )) && isValidQuestionFeedback(request.resource.data);
+      allow update: if isAdmin() && isValidQuestionFeedback(request.resource.data);
       allow delete: if isAdmin();
     }
 

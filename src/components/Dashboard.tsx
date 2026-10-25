@@ -12,10 +12,13 @@ import {
   BookmarkCheck,
   HelpCircle,
   Clock,
+  MessageSquare,
 } from 'lucide-react';
 import { Student, DailyHalacha, PrizeMilestone } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { formatQuizDateLabel } from '../lib/quizSchedule';
+import { SuggestQuestionModal } from './SuggestQuestionModal';
+import { QuestionFeedbackModal } from './QuestionFeedbackModal';
 
 interface DashboardProps {
   student: Student;
@@ -47,6 +50,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onViewLeaderboards,
 }) => {
   const [showSubmissionDetails, setShowSubmissionDetails] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [feedbackQuestionContext, setFeedbackQuestionContext] = useState<{
+    date: string;
+    halachaId?: string;
+    halachaTitle?: string;
+    questionId: string;
+    questionText: string;
+  } | null>(null);
 
   const currentHalacha = halachot.find((h) => h.date === selectedDate);
   const canTakeQuiz = availableQuizDates.includes(selectedDate) && currentHalacha?.quizEnabled !== false;
@@ -105,6 +116,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
               >
                 <span>צפי במיקום הכיתה והשכבה שלך</span>
                 <ArrowLeft className="w-4 h-4 shrink-0" />
+              </button>
+
+              <button
+                onClick={() => setShowSuggestModal(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-amber-500/25 hover:bg-amber-500/40 text-amber-100 border border-amber-300/40 font-bold text-xs px-3.5 py-2.5 rounded-2xl transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-xs"
+              >
+                <Sparkles className="w-4 h-4 text-yellow-300 shrink-0" />
+                <span>הציעי שאלת הלכה לחידון (בונוס נקודות)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setFeedbackQuestionContext({
+                    date: selectedDate || todayDate,
+                    halachaId: currentHalacha?.id,
+                    halachaTitle: currentHalacha?.title,
+                    questionId: 'general',
+                    questionText: 'משוב כללי והצעת שיפור לאפליקציה ולחידונים',
+                  });
+                }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white/15 hover:bg-white/25 text-white border border-white/30 font-bold text-xs px-3.5 py-2.5 rounded-2xl transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-xs"
+              >
+                <MessageSquare className="w-4 h-4 text-amber-200 shrink-0" />
+                <span>הצעות שיפור ומשוב 💡</span>
               </button>
             </div>
           </div>
@@ -219,12 +254,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   📚 {currentHalacha.source || 'סדרת אהלי הלכה • הגר"י אריאל שליט"א'}
                 </span>
                 <span className="text-[11px] sm:text-xs font-medium text-amber-800">
-                  • {currentHalacha.date}
+                  • {formatQuizDateLabel(currentHalacha.hebrewDate, currentHalacha.date)}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackQuestionContext({
+                      date: currentHalacha.date,
+                      halachaId: currentHalacha.id,
+                      halachaTitle: currentHalacha.title,
+                      questionId: 'daily-halacha',
+                      questionText: `משוב על ההלכה: ${currentHalacha.title}`,
+                    });
+                  }}
+                  className="bg-amber-100/90 hover:bg-amber-200 text-amber-900 border border-amber-300/80 px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1"
+                  title="יש לך הערה או רעיון לגבי הלכה זו?"
+                >
+                  <MessageSquare className="w-3 h-3 text-amber-700" />
+                  <span>הערה / משוב על ההלכה</span>
+                </button>
               </div>
               <h3 className="text-lg sm:text-2xl font-extrabold text-amber-950 font-['Heebo'] leading-snug">
                 {currentHalacha.title}
               </h3>
+              {currentHalacha.suggestedBy && (
+                <div className="inline-flex items-center gap-1.5 bg-amber-100/90 text-amber-900 border border-amber-300 px-3 py-1 rounded-full text-xs font-bold shadow-2xs">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                  <span>
+                    הלכה וחידון זה נכתבו בהשתתפות <strong>{currentHalacha.suggestedBy.studentName}</strong> (כיתה {currentHalacha.suggestedBy.className})!
+                  </span>
+                </div>
+              )}
             </div>
 
               {isCompletedToday ? (
@@ -257,9 +317,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             {/* Bottom Action Area */}
             <div className="pt-4 border-t border-amber-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
-              <div className="text-xs text-amber-800 font-medium flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>נלקח מתוך סדרת "אהלי הלכה" • 2 דק' קריאה • 4 שאלות</span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-amber-800 font-medium">
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>נלקח מתוך סדרת "אהלי הלכה" • 2 דק' קריאה • 4 שאלות</span>
+                </span>
+                <span className="text-amber-300 hidden sm:inline">•</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackQuestionContext({
+                      date: currentHalacha.date,
+                      halachaId: currentHalacha.id,
+                      halachaTitle: currentHalacha.title,
+                      questionId: 'daily-halacha',
+                      questionText: `משוב על ההלכה: ${currentHalacha.title}`,
+                    });
+                  }}
+                  className="text-amber-900 hover:text-amber-950 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>יש לך הערה או הצעת שיפור? שתפי אותנו</span>
+                </button>
               </div>
 
               {!isCompletedToday && canTakeQuiz ? (
@@ -337,6 +416,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             💡 {q.explanation}
                           </p>
                         )}
+                        <div className="mt-2 pt-1 border-t border-slate-200/60 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFeedbackQuestionContext({
+                                date: currentHalacha.date,
+                                halachaId: currentHalacha.id,
+                                halachaTitle: currentHalacha.title,
+                                questionId: q.id,
+                                questionText: q.text,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] text-amber-800 hover:text-amber-950 font-semibold hover:underline cursor-pointer"
+                          >
+                            <MessageSquare className="w-3 h-3 text-amber-600" />
+                            <span>יש לך הערה או השגה על שאלה זו?</span>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -374,6 +471,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </>
           )}
         </div>
+      )}
+
+      {showSuggestModal && (
+        <SuggestQuestionModal
+          student={student}
+          isOpen={true}
+          onClose={() => setShowSuggestModal(false)}
+          halachot={halachot}
+          todayDate={todayDate}
+        />
+      )}
+
+      {feedbackQuestionContext && (
+        <QuestionFeedbackModal
+          student={student}
+          isOpen={true}
+          questionContext={feedbackQuestionContext}
+          onClose={() => setFeedbackQuestionContext(null)}
+        />
       )}
     </div>
   );

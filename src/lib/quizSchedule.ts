@@ -128,24 +128,59 @@ export function isQuizDateAvailable(today: string, quizDate: string): boolean {
   return getAvailableQuizDates(today).includes(quizDate);
 }
 
+export function getHebrewDateOnly(gregorianDate: string): string {
+  const hDate = parseHebrewCalendarDate(gregorianDate);
+  if (!hDate) return '';
+  const cleaned = hDate
+    .renderGematriya()
+    .replace(/[\u0591-\u05C7]/g, '')
+    .replace(/׳/g, "'")
+    .replace(/״/g, '"')
+    .trim();
+  const parts = cleaned.split(/\s+/);
+  // Remove the Hebrew year (the last part) to keep strictly [Day in gematriya] [Month]
+  return parts.length > 1 ? parts.slice(0, -1).join(' ') : cleaned;
+}
+
 export function formatShortHebrewDateLabel(hebrewDate?: string): string {
   if (!hebrewDate) return '';
+  const trimmed = hebrewDate.trim();
+  if (!trimmed || trimmed.length > 50) return '';
 
-  const parts = hebrewDate.trim().split(/\s+/);
-  if (parts.length < 2) return hebrewDate;
-
-  const monthNames = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אייר', 'סיוון', 'תמוז', 'אב', 'אלול'];
-  const secondIsMonth = monthNames.some((month) => parts[1].includes(month));
-
-  if (secondIsMonth) {
-    const remaining = parts.slice(0, 2);
-    if (parts.length >= 3 && /^ב'|^א'|^\d+$/.test(parts[2])) {
-      remaining.push(parts[2]);
-    }
-    return remaining.join(' ');
+  // Extract day and month if present in hebrewDate (e.g. "יום שישי ח' בטבת", "כ\"ב אלול תשפ\"ז", "ט' באלול, שבת פרשת כי תצא")
+  const match = trimmed.match(
+    /([א-ת]['"״׳]?[א-ת]?)\s+(ב?(?:תשרי|חשון|מרחשון|כסלו|טבת|שבט|אדר(?:\s+(?:[אב]'|ראשון|שני))?|ניסן|אייר|סיון|סיוון|תמוז|אב|אלול))/
+  );
+  if (match) {
+    const day = match[1].replace(/׳/g, "'").replace(/״/g, '"');
+    const month = match[2];
+    return `${day} ${month}`;
   }
 
-  return hebrewDate;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2) {
+    const monthNames = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אייר', 'סיוון', 'תמוז', 'אב', 'אלול'];
+    if (monthNames.some((m) => parts[1].includes(m))) {
+      return `${parts[0]} ${parts[1]}`;
+    }
+  }
+
+  return '';
+}
+
+export function getHebrewDayAndDateLabel(gregorianDate: string): string {
+  const [y, m, d] = gregorianDate.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+  const dayIndex = dateObj.getDay();
+  const dayNames = ['יום ראשון', 'יום שני', 'יום שלישי', 'יום רביעי', 'יום חמישי', 'יום שישי', 'שבת'];
+  const dayName = dayNames[dayIndex] || '';
+
+  const hebDateOnly = getHebrewDateOnly(gregorianDate);
+  if (hebDateOnly) {
+    return `${dayName} | ${hebDateOnly}`;
+  }
+
+  return `${dayName} | ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
 }
 
 function getShabbatLabel(gregorianDate: string): string | null {
@@ -171,9 +206,18 @@ function getShabbatLabel(gregorianDate: string): string | null {
 }
 
 export function formatQuizDateLabel(hebrewDate: string | undefined, gregorianDate: string): string {
-  const dateLabel = formatShortHebrewDateLabel(hebrewDate) || gregorianDate;
+  const hebDateOnly = formatShortHebrewDateLabel(hebrewDate) || getHebrewDateOnly(gregorianDate) || gregorianDate;
   const shabbatLabel = getShabbatLabel(gregorianDate);
-  return shabbatLabel ? `${shabbatLabel} • ${dateLabel}` : dateLabel;
+  if (shabbatLabel) {
+    return `${shabbatLabel} • ${hebDateOnly}`;
+  }
+
+  const [y, m, d] = gregorianDate.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+  const dayNames = ['יום ראשון', 'יום שני', 'יום שלישי', 'יום רביעי', 'יום חמישי', 'יום שישי', 'שבת'];
+  const dayName = dayNames[dateObj.getDay()] || '';
+
+  return dayName ? `${dayName} • ${hebDateOnly}` : hebDateOnly;
 }
 
 export function uniqueQuizzesByDate<T extends { date: string }>(quizzes: T[]): T[] {
