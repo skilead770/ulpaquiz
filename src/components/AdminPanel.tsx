@@ -395,11 +395,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   }, []);
 
-  const currentHebrewDate = new Hebcal.HDate(new Date());
-  const currentMonthKey = `${currentHebrewDate.getFullYear()}-${currentHebrewDate.getMonth()}`;
-  const [selectedMonthKey, setSelectedMonthKey] = useState('');
+  const jerusalemTodayParts = React.useMemo(() => {
+    const todayStr = getTodayInJerusalem();
+    const [y, m, d] = todayStr.split('-').map(Number);
+    return { year: y, month: m, day: d, dateStr: todayStr };
+  }, []);
 
-  const [selectedHebrewDateAbs, setSelectedHebrewDateAbs] = useState<number | null>(null);
+  const currentHebrewDate = React.useMemo(() => {
+    return new Hebcal.HDate(
+      new Date(jerusalemTodayParts.year, jerusalemTodayParts.month - 1, jerusalemTodayParts.day, 12)
+    );
+  }, [jerusalemTodayParts]);
+
+  const currentHebrewDateAbs = React.useMemo(() => {
+    return new Hebcal.HDate(
+      currentHebrewDate.getDate(),
+      currentHebrewDate.getMonth(),
+      halachaHebrewYear
+    ).abs();
+  }, [currentHebrewDate]);
+
+  const currentMonthKey = `${halachaHebrewYear}-${currentHebrewDate.getMonth()}`;
+  const [selectedMonthKey, setSelectedMonthKey] = useState(currentMonthKey);
+
+  const [selectedHebrewDateAbs, setSelectedHebrewDateAbs] = useState<number | null>(currentHebrewDateAbs);
+
+  const hebrewDateTableScrollRef = React.useRef<HTMLDivElement>(null);
+  const selectedHebrewDateRowRef = React.useRef<HTMLTableRowElement>(null);
+
+  const handleJumpToToday = React.useCallback(() => {
+    if (selectedMonthKey !== currentMonthKey) {
+      setSelectedMonthKey(currentMonthKey);
+    }
+    setSelectedHebrewDateAbs(currentHebrewDateAbs);
+  }, [selectedMonthKey, currentMonthKey, currentHebrewDateAbs]);
 
   // Custom Calendar Annotations / Holidays State
   const [calendarAnnotations, setCalendarAnnotations] = useState<CalendarAnnotationsMap>({});
@@ -508,10 +537,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     setSelectedHebrewDateAbs((current) => {
       if (current !== null && selectedMonthDays.some((entry) => entry.date.abs() === current)) return current;
+      const todayEntry = selectedMonthDays.find((entry) => entry.date.abs() === currentHebrewDateAbs);
+      if (todayEntry) return todayEntry.date.abs();
       const firstDayWithHalacha = selectedMonthDays.find((entry) => entry.halacha);
       return firstDayWithHalacha?.date.abs() ?? selectedMonthDays[0].date.abs();
     });
-  }, [selectedMonthDays]);
+  }, [selectedMonthDays, currentHebrewDateAbs]);
+
+  React.useEffect(() => {
+    if (activeAdminTab !== 'hebrew-date') return;
+    const timer = setTimeout(() => {
+      const container = hebrewDateTableScrollRef.current;
+      const row = selectedHebrewDateRowRef.current;
+      if (container && row) {
+        const containerRect = container.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        const isFullyVisible =
+          rowRect.top >= containerRect.top + 36 &&
+          rowRect.bottom <= containerRect.bottom - 8;
+
+        if (!isFullyVisible) {
+          const relativeTop = rowRect.top - containerRect.top + container.scrollTop;
+          container.scrollTo({
+            top: Math.max(0, relativeTop - container.clientHeight / 2 + row.clientHeight / 2),
+            behavior: 'smooth',
+          });
+        }
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [activeAdminTab, selectedHebrewDateAbs, selectedMonthKey]);
 
   const selectedEntry = selectedMonthDays.find((entry) => entry.date.abs() === selectedHebrewDateAbs)
     || selectedMonthDays[0]
@@ -2092,7 +2147,10 @@ ${targetHalacha.content}
             </button>
 
             <button
-              onClick={() => setActiveAdminTab('hebrew-date')}
+              onClick={() => {
+                setActiveAdminTab('hebrew-date');
+                handleJumpToToday();
+              }}
               className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 activeAdminTab === 'hebrew-date'
                   ? 'bg-amber-600 text-white shadow-md'
@@ -2196,23 +2254,34 @@ ${targetHalacha.content}
               </div>
             </div>
 
-            <div className="min-w-[260px]">
-              <label className="block text-[11px] font-black text-slate-700 mb-1">בחרי חודש</label>
-              <select
-                value={selectedMonthKey}
-                onChange={(e) => setSelectedMonthKey(e.target.value)}
-                className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            <div className="flex flex-col sm:flex-row sm:items-end gap-2 min-w-[280px]">
+              <div className="flex-1">
+                <label className="block text-[11px] font-black text-slate-700 mb-1">בחרי חודש</label>
+                <select
+                  value={selectedMonthKey}
+                  onChange={(e) => setSelectedMonthKey(e.target.value)}
+                  className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  {monthOptions.length === 0 ? (
+                    <option value="">אין תאריכים עבריים זמינים</option>
+                  ) : (
+                    monthOptions.map((month) => (
+                      <option key={month.key} value={month.key}>
+                        {month.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={handleJumpToToday}
+                title="חזרה לתאריך של היום"
+                className="px-3.5 py-2.5 rounded-xl border border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-xs flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs cursor-pointer"
               >
-                {monthOptions.length === 0 ? (
-                  <option value="">אין תאריכים עבריים זמינים</option>
-                ) : (
-                  monthOptions.map((month) => (
-                    <option key={month.key} value={month.key}>
-                      {month.label}
-                    </option>
-                  ))
-                )}
-              </select>
+                <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                <span>עבור להיום</span>
+              </button>
             </div>
           </div>
 
@@ -2229,9 +2298,9 @@ ${targetHalacha.content}
             {selectedMonthDays.length === 0 ? (
               <p className="p-5 text-center text-sm font-bold text-slate-600">לא ניתן להציג את ימי החודש.</p>
             ) : (
-              <div className="max-h-72 overflow-y-auto">
+              <div ref={hebrewDateTableScrollRef} className="max-h-72 overflow-y-auto">
                 <table className="w-full text-right text-sm">
-                  <thead className="sticky top-0 bg-white text-[11px] font-black text-slate-600 shadow-sm">
+                  <thead className="sticky top-0 bg-white text-[11px] font-black text-slate-600 shadow-sm z-10">
                     <tr>
                       <th className="px-4 py-2">תאריך</th>
                       <th className="px-4 py-2">יום בשבוע</th>
@@ -2242,11 +2311,13 @@ ${targetHalacha.content}
                   <tbody>
                     {selectedMonthDays.map((entry) => {
                       const isSelected = entry.date.abs() === selectedHebrewDateAbs;
+                      const isToday = entry.date.abs() === currentHebrewDateAbs;
                       const hasCustom = Boolean(entry.customAnnotation?.text);
 
                       return (
                         <tr
                           key={entry.date.abs()}
+                          ref={isSelected ? selectedHebrewDateRowRef : null}
                           role="button"
                           tabIndex={0}
                           aria-pressed={isSelected}
@@ -2258,10 +2329,23 @@ ${targetHalacha.content}
                             }
                           }}
                           className={`border-t border-amber-100 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-500 ${
-                            isSelected ? 'bg-amber-100' : 'hover:bg-amber-50'
+                            isSelected
+                              ? 'bg-amber-100'
+                              : isToday
+                              ? 'bg-amber-50/70 hover:bg-amber-100/70'
+                              : 'hover:bg-amber-50'
                           }`}
                         >
-                          <td className="px-4 py-3 font-black text-amber-950">{entry.dayLabel}</td>
+                          <td className="px-4 py-3 font-black text-amber-950">
+                            <div className="flex items-center gap-1.5">
+                              <span>{entry.dayLabel}</span>
+                              {isToday && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-600 text-white shadow-xs">
+                                  היום
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3 font-semibold text-slate-700">
                             {entry.weekday}{entry.weekday === 'שבת' ? ' קודש' : ''}
                           </td>
