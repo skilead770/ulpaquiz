@@ -1,8 +1,13 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+
+// Load .env.local and .env so local dev server uses the configured Firebase project (e.g. ulpaquiz-staging)
+dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 let firestoreDb: ReturnType<typeof getFirestore> | null = null;
 let authAdmin: ReturnType<typeof getAuth> | null = null;

@@ -404,8 +404,8 @@ async function startServer() {
     next();
   });
 
-  // Initialize Firestore on startup
-  await initFirestore();
+  // Initialize Firestore in the background so local dev server starts immediately
+  void initFirestore();
 
   // -------------------------------------------------------------
   // Token Verification Helper & Security Middlewares
