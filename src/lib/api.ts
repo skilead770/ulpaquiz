@@ -1873,22 +1873,40 @@ export async function deleteManagerApi(
 // School Classes API (Admin & Registration)
 // ==========================================
 
-export async function fetchClassesApi(): Promise<string[]> {
+async function fetchActiveStudentClasses(): Promise<string[]> {
   try {
-    const snap = await getDocs(collection(db, 'settings'));
-    let found: string[] | null = null;
-    snap.forEach((d) => {
-      if (d.id === 'classes') {
-        const cData = d.data();
-        if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
-          found = cData.list;
-        }
-      }
-    });
-    if (found) return sortClasses(found);
+    const publicStudents = await fetchPublicStudentSummaries();
+    return Array.from(
+      new Set(
+        publicStudents
+          .map((s) => (s.className || '').trim())
+          .filter(Boolean)
+      )
+    );
+  } catch {
+    return [];
+  }
+}
 
-    await setDoc(doc(db, 'settings', 'classes'), { list: sortClasses(DEFAULT_CLASSES) });
-    return sortClasses(DEFAULT_CLASSES);
+export async function fetchClassesApi(): Promise<string[]> {
+  const activeStudentClasses = await fetchActiveStudentClasses();
+
+  try {
+    const classesSnap = await getDoc(doc(db, 'settings', 'classes'));
+    if (classesSnap.exists()) {
+      const cData = classesSnap.data();
+      if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
+        return sortClasses(
+          Array.from(new Set([...cData.list, ...activeStudentClasses])).filter(Boolean)
+        );
+      }
+    }
+
+    const initialClasses = sortClasses(
+      Array.from(new Set([...DEFAULT_CLASSES, ...activeStudentClasses])).filter(Boolean)
+    );
+    await setDoc(doc(db, 'settings', 'classes'), { list: initialClasses });
+    return initialClasses;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
   }
@@ -1898,14 +1916,18 @@ export async function fetchClassesApi(): Promise<string[]> {
     if (res.ok) {
       const data = await parseJsonResponse(res);
       if (Array.isArray(data.classes) && data.classes.length > 0) {
-        return sortClasses(data.classes);
+        return sortClasses(
+          Array.from(new Set([...data.classes, ...activeStudentClasses])).filter(Boolean)
+        );
       }
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for fetchClassesApi');
   }
 
-  return sortClasses(DEFAULT_CLASSES);
+  return sortClasses(
+    Array.from(new Set([...DEFAULT_CLASSES, ...activeStudentClasses])).filter(Boolean)
+  );
 }
 
 export async function addClassApi(name: string): Promise<string[]> {

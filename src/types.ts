@@ -3,12 +3,18 @@ export type GradeType = 'ט' | 'י' | 'יא' | 'יב';
 export const DEFAULT_CLASSES: string[] = [
   "ט'1",
   "ט'2",
+  "ט'3",
+  "ט'4",
+  "ט'5",
   "י'1",
   "י'2",
+  "י'3",
   "יא'1",
   "יא'2",
+  "יא'3",
   "יב'1",
   "יב'2",
+  "יב'3",
 ];
 
 export function inferGradeFromClass(className: string): GradeType {
