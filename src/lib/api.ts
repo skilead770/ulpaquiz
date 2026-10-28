@@ -13,6 +13,7 @@ import {
   writeBatch,
   deleteField,
   limit,
+  orderBy,
 } from 'firebase/firestore';
 import { auth, db } from './firebaseClient';
 import {
@@ -38,9 +39,13 @@ import {
   PublicStudentSummary,
   DEFAULT_CLASSES,
   inferGradeFromClass,
+  sortClasses,
   getStudentRegistrationDocumentId,
   CustomCalendarAnnotation,
   CalendarAnnotationsMap,
+  QuestionSuggestion,
+  QuestionFeedback,
+  QuestionFeedbackType,
 } from '../types';
 import { DEFAULT_SCHOOLS } from '../types/tenant';
 import {
@@ -744,9 +749,10 @@ export async function savePrizeMilestonesApi(milestones: PrizeMilestone[], schoo
   const normalized = [...milestones]
     .map((m) => ({
       ...m,
-      points: Number(m.points) || 0,
+      points: Math.max(0, Number(m.points) || 0),
       title: (m.title || '').trim(),
       rewardDescription: (m.rewardDescription || '').trim(),
+      iconName: (m.iconName || 'Award').trim(),
     }))
     .filter((m) => m.title && m.rewardDescription)
     .sort((a, b) => a.points - b.points);
@@ -1684,6 +1690,83 @@ export async function resetStudentQuizSubmissionApi(
   }
 }
 
+export async function resetClassOrGradeScoreApi(
+  targetType: 'class' | 'grade',
+  targetValue: string,
+  options?: { clearHistory?: boolean }
+): Promise<{ success: boolean; affectedCount: number; previousTotalPoints: number }> {
+  const firebaseUser = auth.currentUser;
+  const email = firebaseUser?.email?.trim().toLowerCase();
+  if (!firebaseUser?.emailVerified || !email) {
+    throw new Error('נדרשת התחברות מנהלת מאומתת לביצוע פעולה זו');
+  }
+
+  const managerSnap = await getDocs(query(collection(db, 'managers'), where('email', '==', email)));
+  if (managerSnap.empty && email !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+    throw new Error('אין לך הרשאות מנהלת לביצוע איפוס ניקוד');
+  }
+
+  const allSnap = await getDocs(collection(db, 'students'));
+  const targetClean = targetValue.trim();
+
+  const studentsToReset = allSnap.docs
+    .map((docSnap) => docSnap.data() as Student)
+    .filter((s) => {
+      if (s.managerParticipation) return false;
+      if (targetType === 'class') {
+        return (s.className || '').trim() === targetClean;
+      } else {
+        return (
+          (s.grade || '').trim() === targetClean ||
+          inferGradeFromClass(s.className || '') === targetClean
+        );
+      }
+    });
+
+  if (studentsToReset.length === 0) {
+    return { success: true, affectedCount: 0, previousTotalPoints: 0 };
+  }
+
+  const previousTotalPoints = studentsToReset.reduce((sum, s) => sum + (s.points || 0), 0);
+
+  const CHUNK_SIZE = 200;
+  for (let i = 0; i < studentsToReset.length; i += CHUNK_SIZE) {
+    const chunk = studentsToReset.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    for (const student of chunk) {
+      const updatedStudent: Student = {
+        ...student,
+        points: 0,
+        ...(options?.clearHistory
+          ? { completedDates: [], submissions: {} }
+          : {}),
+      };
+
+      const studentRef = doc(db, 'students', student.id);
+      batch.set(studentRef, stripUndefinedValues(updatedStudent));
+
+      const publicRef = doc(db, 'publicStudents', student.id);
+      const publicSummary = toPublicStudentSummary(updatedStudent);
+      if (publicSummary) {
+        batch.set(publicRef, publicSummary);
+      } else {
+        batch.delete(publicRef);
+      }
+    }
+
+    await batch.commit();
+  }
+
+  invalidatePublicStudentSummariesCache();
+
+  return {
+    success: true,
+    affectedCount: studentsToReset.length,
+    previousTotalPoints,
+  };
+}
+
 export async function resetDemoApi() {
   try {
     const res = await fetch('/api/reset-demo', {
@@ -1904,10 +1987,10 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
         }
       }
     });
-    if (found) return found;
+    if (found) return sortClasses(found);
 
-    await setDoc(doc(db, 'settings', 'classes'), { list: DEFAULT_CLASSES });
-    return DEFAULT_CLASSES;
+    await setDoc(doc(db, 'settings', 'classes'), { list: sortClasses(DEFAULT_CLASSES) });
+    return sortClasses(DEFAULT_CLASSES);
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
   }
@@ -1917,7 +2000,7 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
     if (res.ok) {
       const data = await parseJsonResponse(res);
       if (Array.isArray(data.classes) && data.classes.length > 0) {
-        return data.classes;
+        return sortClasses(data.classes);
       }
     }
   } catch (e) {
@@ -1925,7 +2008,7 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
   }
 
   const defSchool = DEFAULT_SCHOOLS.find((s) => s.id === schoolId);
-  return defSchool ? defSchool.classes : DEFAULT_CLASSES;
+  return sortClasses(defSchool ? defSchool.classes : DEFAULT_CLASSES);
 }
 
 export async function addClassApi(name: string, schoolId: string = 'shvut-rachel'): Promise<string[]> {
@@ -1935,7 +2018,7 @@ export async function addClassApi(name: string, schoolId: string = 'shvut-rachel
   try {
     const current = await fetchClassesApi(schoolId);
     if (!current.includes(clean)) {
-      const updated = [...current, clean];
+      const updated = sortClasses([...current, clean]);
       if (schoolId !== 'shvut-rachel') {
         await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
       } else {
@@ -1956,7 +2039,7 @@ export async function addClassApi(name: string, schoolId: string = 'shvut-rachel
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for addClassApi');
@@ -1964,7 +2047,7 @@ export async function addClassApi(name: string, schoolId: string = 'shvut-rachel
 
   const current = await fetchClassesApi(schoolId);
   if (!current.includes(clean)) {
-    const updated = [...current, clean];
+    const updated = sortClasses([...current, clean]);
     if (schoolId !== 'shvut-rachel') {
       await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
     } else {
@@ -1980,7 +2063,7 @@ export async function deleteClassApi(name: string, schoolId: string = 'shvut-rac
 
   try {
     const current = await fetchClassesApi(schoolId);
-    const updated = current.filter((c) => c !== clean);
+    const updated = sortClasses(current.filter((c) => c !== clean));
     if (schoolId !== 'shvut-rachel') {
       await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
     } else {
@@ -1998,14 +2081,14 @@ export async function deleteClassApi(name: string, schoolId: string = 'shvut-rac
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for deleteClassApi');
   }
 
   const current = await fetchClassesApi(schoolId);
-  const updated = current.filter((c) => c !== clean);
+  const updated = sortClasses(current.filter((c) => c !== clean));
   if (schoolId !== 'shvut-rachel') {
     await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
   } else {
@@ -2015,13 +2098,14 @@ export async function deleteClassApi(name: string, schoolId: string = 'shvut-rac
 }
 
 export async function updateClassesApi(classes: string[], schoolId: string = 'shvut-rachel'): Promise<string[]> {
+  const sorted = sortClasses(classes);
   try {
     if (schoolId !== 'shvut-rachel') {
-      await setDoc(doc(db, 'schools', schoolId), { classes }, { merge: true });
+      await setDoc(doc(db, 'schools', schoolId), { classes: sorted }, { merge: true });
     } else {
-      await setDoc(doc(db, 'settings', 'classes'), { list: classes });
+      await setDoc(doc(db, 'settings', 'classes'), { list: sorted });
     }
-    return classes;
+    return sorted;
   } catch (err) {
     console.warn('[Firestore Fallback] Error updating classes:', err);
   }
@@ -2030,20 +2114,193 @@ export async function updateClassesApi(classes: string[], schoolId: string = 'sh
     const res = await fetch('/api/classes', {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ classes, schoolId }),
+      body: JSON.stringify({ classes: sorted, schoolId }),
     });
     if (res.ok) {
       const data = await parseJsonResponse(res);
-      return data.classes;
+      return sortClasses(data.classes);
     }
   } catch (e) {
     console.info('[API] Falling back to seeded Firestore for updateClassesApi');
   }
 
   if (schoolId !== 'shvut-rachel') {
-    await setDoc(doc(db, 'schools', schoolId), { classes }, { merge: true });
+    await setDoc(doc(db, 'schools', schoolId), { classes: sorted }, { merge: true });
   } else {
-    await setDoc(doc(db, 'settings', 'classes'), { list: classes });
+    await setDoc(doc(db, 'settings', 'classes'), { list: sorted });
   }
-  return classes;
+  return sorted;
 }
+
+// ==========================================
+// Question Suggestions & Feedback API
+// ==========================================
+
+function stripUndefined<T extends Record<string, any>>(obj: T): T {
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+export async function submitQuestionSuggestionApi(
+  suggestionData: Omit<QuestionSuggestion, 'id' | 'status' | 'createdAt'>
+): Promise<QuestionSuggestion> {
+  const docRef = doc(collection(db, 'questionSuggestions'));
+  const newSuggestion: QuestionSuggestion = {
+    ...suggestionData,
+    id: docRef.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  await setDoc(docRef, stripUndefined(newSuggestion));
+  return newSuggestion;
+}
+
+export async function submitMultipleQuestionSuggestionsApi(
+  suggestionsData: Omit<QuestionSuggestion, 'id' | 'status' | 'createdAt'>[]
+): Promise<QuestionSuggestion[]> {
+  const results: QuestionSuggestion[] = [];
+  for (const item of suggestionsData) {
+    const created = await submitQuestionSuggestionApi(item);
+    results.push(created);
+  }
+  return results;
+}
+
+export async function fetchUpcomingHalachotApi(
+  startDate: string,
+  limitCount = 60
+): Promise<DailyHalacha[]> {
+  try {
+    const q = query(
+      collection(db, 'halachot'),
+      where('date', '>=', startDate),
+      orderBy('date', 'asc'),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const list: DailyHalacha[] = [];
+      snap.forEach((d) => list.push(d.data() as DailyHalacha));
+      return list;
+    }
+  } catch (err) {
+    console.warn('[Firestore] Direct upcoming halachot query failed, falling back:', err);
+  }
+
+  const all = await fetchHalachot();
+  const future = all
+    .filter((h) => h.date >= startDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (future.length > 0) {
+    return future.slice(0, limitCount);
+  }
+  return all.sort((a, b) => a.date.localeCompare(b.date)).slice(0, limitCount);
+}
+
+export async function fetchQuestionSuggestionsApi(): Promise<QuestionSuggestion[]> {
+  const snap = await getDocs(collection(db, 'questionSuggestions'));
+  const list: QuestionSuggestion[] = [];
+  snap.forEach((d) => {
+    list.push({ id: d.id, ...(d.data() as Omit<QuestionSuggestion, 'id'>) });
+  });
+  return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function approveQuestionSuggestionApi(
+  id: string,
+  options: { pointsAwarded: number; targetDate?: string; adminFeedback?: string }
+): Promise<void> {
+  const sugRef = doc(db, 'questionSuggestions', id);
+  const snap = await getDoc(sugRef);
+  if (!snap.exists()) throw new Error('ההצעה לא נמצאה');
+  const sug = snap.data() as QuestionSuggestion;
+
+  const updates: Partial<QuestionSuggestion> = {
+    status: 'approved',
+    pointsAwarded: options.pointsAwarded || 0,
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: auth.currentUser?.email || 'מנהל',
+  };
+  if (options.targetDate) updates.targetDate = options.targetDate;
+  if (options.adminFeedback) updates.adminFeedback = options.adminFeedback;
+
+  await updateDoc(sugRef, stripUndefined(updates));
+
+  // If bonus points were awarded, update student's points in private and public collections
+  if (options.pointsAwarded > 0 && sug.studentId) {
+    const studentRef = doc(db, 'students', sug.studentId);
+    const studentSnap = await getDoc(studentRef);
+    if (studentSnap.exists()) {
+      const studentData = studentSnap.data() as Student;
+      const newPoints = (studentData.points || 0) + options.pointsAwarded;
+      const batch = writeBatch(db);
+      batch.update(studentRef, { points: newPoints });
+
+      const publicRef = doc(db, 'publicStudents', sug.studentId);
+      const publicSnap = await getDoc(publicRef);
+      if (publicSnap.exists()) {
+        batch.update(publicRef, { points: newPoints });
+      }
+      await batch.commit();
+      invalidatePublicStudentSummariesCache();
+    }
+  }
+}
+
+export async function rejectQuestionSuggestionApi(
+  id: string,
+  adminFeedback?: string
+): Promise<void> {
+  const sugRef = doc(db, 'questionSuggestions', id);
+  const updates: Partial<QuestionSuggestion> = {
+    status: 'rejected',
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: auth.currentUser?.email || 'מנהל',
+  };
+  if (adminFeedback) updates.adminFeedback = adminFeedback;
+  await updateDoc(sugRef, stripUndefined(updates));
+}
+
+export async function submitQuestionFeedbackApi(
+  feedbackData: Omit<QuestionFeedback, 'id' | 'status' | 'createdAt'>
+): Promise<QuestionFeedback> {
+  const docRef = doc(collection(db, 'questionFeedback'));
+  const newFeedback: QuestionFeedback = {
+    ...feedbackData,
+    id: docRef.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  await setDoc(docRef, stripUndefined(newFeedback));
+  return newFeedback;
+}
+
+export async function fetchQuestionFeedbackApi(): Promise<QuestionFeedback[]> {
+  const snap = await getDocs(collection(db, 'questionFeedback'));
+  const list: QuestionFeedback[] = [];
+  snap.forEach((d) => {
+    list.push({ id: d.id, ...(d.data() as Omit<QuestionFeedback, 'id'>) });
+  });
+  return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function resolveQuestionFeedbackApi(
+  id: string,
+  adminResponse?: string
+): Promise<void> {
+  const feedbackRef = doc(db, 'questionFeedback', id);
+  const updates: Partial<QuestionFeedback> = {
+    status: 'resolved',
+    resolvedAt: new Date().toISOString(),
+    resolvedBy: auth.currentUser?.email || 'מנהל',
+  };
+  if (adminResponse) updates.adminResponse = adminResponse;
+  await updateDoc(feedbackRef, stripUndefined(updates));
+}
+
+

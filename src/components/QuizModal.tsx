@@ -10,12 +10,36 @@ import {
   ArrowLeft,
   Crown,
   Award,
+  MessageSquare,
+  Gift,
+  Star,
+  BookOpen,
+  Bookmark,
+  Heart,
 } from 'lucide-react';
+
+const renderQuizMilestoneIcon = (iconName?: string, className: string = 'w-5 h-5') => {
+  switch (iconName) {
+    case 'Crown': return <Crown className={className} />;
+    case 'Award': return <Award className={className} />;
+    case 'Gift': return <Gift className={className} />;
+    case 'Star': return <Star className={className} />;
+    case 'Sparkles': return <Sparkles className={className} />;
+    case 'BookOpen': return <BookOpen className={className} />;
+    case 'Bookmark': return <Bookmark className={className} />;
+    case 'Heart': return <Heart className={className} />;
+    case 'Trophy':
+    default:
+      return <Trophy className={className} />;
+  }
+};
 import confetti from 'canvas-confetti';
 import { DailyHalacha, Student, PrizeMilestone } from '../types';
 import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import { submitQuizApi } from '../lib/api';
 import { useTenant } from '../context/SchoolContext';
+import { formatQuizDateLabel } from '../lib/quizSchedule';
+import { QuestionFeedbackModal } from './QuestionFeedbackModal';
 
 interface QuizModalProps {
   student: Student;
@@ -43,6 +67,13 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   const [confirmedStudy, setConfirmedStudy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [feedbackContext, setFeedbackContext] = useState<{
+    date: string;
+    halachaId?: string;
+    halachaTitle?: string;
+    questionId: string;
+    questionText: string;
+  } | null>(null);
 
   // Results View State
   const [quizResult, setQuizResult] = useState<{
@@ -151,7 +182,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                 החידון היומי - {halacha.topic}
               </h3>
               <p className="text-[11px] sm:text-xs text-amber-100 font-medium truncate">
-                אהלי הלכה • הגר"י אריאל • {halacha.date} • 4 שאלות
+                אהלי הלכה • הגר"י אריאל • {formatQuizDateLabel(halacha.hebrewDate, halacha.date)} • 4 שאלות
               </p>
             </div>
           </div>
@@ -247,9 +278,19 @@ export const QuizModal: React.FC<QuizModalProps> = ({
 
             {/* Current Question Block */}
             <div className="bg-amber-50/50 p-4 sm:p-5 rounded-2xl border border-amber-200/80 space-y-3.5">
-              <h4 className="text-sm sm:text-lg font-bold text-amber-950 font-['Heebo'] leading-relaxed">
-                {currentQuestionIndex + 1}. {currentQuestion.text}
-              </h4>
+              <div className="space-y-1.5">
+                {currentQuestion.suggestedBy && (
+                  <div className="inline-flex items-center gap-1.5 bg-amber-100/90 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded-full text-[11px] font-bold shadow-2xs">
+                    <Sparkles className="w-3 h-3 text-amber-600" />
+                    <span>
+                      שאלה זו הוצעה ע"י <strong>{currentQuestion.suggestedBy.studentName}</strong> (כיתה {currentQuestion.suggestedBy.className})
+                    </span>
+                  </div>
+                )}
+                <h4 className="text-sm sm:text-lg font-bold text-amber-950 font-['Heebo'] leading-relaxed">
+                  {currentQuestionIndex + 1}. {currentQuestion.text}
+                </h4>
+              </div>
 
               {/* Options */}
               <div className="space-y-2">
@@ -284,6 +325,25 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFeedbackContext({
+                      date: halacha.date,
+                      halachaId: halacha.id,
+                      halachaTitle: halacha.title,
+                      questionId: currentQuestion.id,
+                      questionText: currentQuestion.text,
+                    })
+                  }
+                  className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-semibold cursor-pointer hover:underline"
+                >
+                  <MessageSquare className="w-3 h-3 text-amber-600" />
+                  <span>הערה / השגה על שאלה זו</span>
+                </button>
               </div>
             </div>
 
@@ -418,7 +478,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
               <div className="bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 border-2 border-amber-400 rounded-2xl p-3.5 sm:p-4 text-right space-y-2 shadow-xs animate-in zoom-in-95">
                 <div className="flex items-center gap-2">
                   <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <Trophy className="w-5 h-5 animate-bounce" />
+                    {renderQuizMilestoneIcon(quizResult.milestonesReached[0].iconName, 'w-5 h-5 animate-bounce')}
                   </div>
                   <div>
                     <span className="bg-amber-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">
@@ -433,14 +493,14 @@ export const QuizModal: React.FC<QuizModalProps> = ({
                   🎁 הפרס שלך: {quizResult.milestonesReached[0].rewardDescription}
                 </div>
                 <p className="text-[11px] text-amber-800 font-semibold">
-                  הפרס האישי מחכה לך {isBoys ? 'בחדר המורים / במזכירות' : 'בחדר המורות'}! כל הכבוד על ההתמדה והלימוד! ✨
+                  כל הכבוד על ההתמדה והלימוד היומי! פרטי חלוקת הפרס יימסרו על ידי צוות ה{genderText.institutionType} ✨
                 </p>
               </div>
             ) : nextMilestone ? (
               <div className="bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200/90 rounded-2xl p-3.5 sm:p-4 text-right space-y-2 shadow-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <Award className="w-5 h-5 text-amber-600 shrink-0" />
+                    {renderQuizMilestoneIcon(nextMilestone.iconName, 'w-5 h-5 text-amber-600 shrink-0')}
                     <span className="text-xs sm:text-sm font-bold text-amber-950">
                       יעד הפרס הבא: {nextMilestone.title} ({nextMilestone.points} נק')
                     </span>
@@ -471,9 +531,37 @@ export const QuizModal: React.FC<QuizModalProps> = ({
             >
               {isBoys ? 'סגור וצפה בלוח המובילים' : 'סגרי וצפי בלוח המובילים'}
             </button>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setFeedbackContext({
+                    date: halacha.date,
+                    halachaId: halacha.id,
+                    halachaTitle: halacha.topic,
+                    questionId: halacha.questions[0]?.id || 'general',
+                    questionText: halacha.questions[0]?.text || halacha.topic,
+                  })
+                }
+                className="inline-flex items-center justify-center gap-1.5 text-xs text-amber-800 hover:text-amber-950 font-semibold cursor-pointer hover:underline mx-auto"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                <span>יש לך הערה או השגה על שאלות החידון? דווחי כאן למנהלת</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {feedbackContext && (
+        <QuestionFeedbackModal
+          student={student}
+          isOpen={true}
+          questionContext={feedbackContext}
+          onClose={() => setFeedbackContext(null)}
+        />
+      )}
     </div>
   );
 };

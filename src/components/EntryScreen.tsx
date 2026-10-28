@@ -17,7 +17,7 @@ import {
   GraduationCap,
   Lock,
 } from 'lucide-react';
-import { Student, DEFAULT_CLASSES } from '../types';
+import { Student, DEFAULT_CLASSES, sortClasses } from '../types';
 import { registerStudentApi, checkStudentStatusApi, fetchClassesApi } from '../lib/api';
 import { validateGmailAddress } from '../lib/gmailValidator';
 import { resolveFirebaseUserSession, signInWithGoogleSSO, validateSecureGoogleGmail } from '../lib/authService';
@@ -40,18 +40,22 @@ export const EntryScreen: React.FC<EntryScreenProps> = ({
   // Simple registration fields: Full Name, GMAIL address, and Class from managed list
   const [fullName, setFullName] = useState('');
   const [gmail, setGmail] = useState('');
-  const [classesList, setClassesList] = useState<string[]>(currentSchool.classes?.length ? currentSchool.classes : DEFAULT_CLASSES);
+  const [classesList, setClassesList] = useState<string[]>(() =>
+    sortClasses(currentSchool.classes?.length ? currentSchool.classes : DEFAULT_CLASSES)
+  );
   const [selectedClass, setSelectedClass] = useState<string>(currentSchool.classes?.[0] || DEFAULT_CLASSES[0] || "ט'1");
 
   // Load available classes for current school from server/Firestore
   React.useEffect(() => {
     fetchClassesApi(currentSchoolId).then((list) => {
       if (list && list.length > 0) {
-        setClassesList(list);
-        setSelectedClass((prev) => (list.includes(prev) ? prev : list[0]));
+        const sorted = sortClasses(list);
+        setClassesList(sorted);
+        setSelectedClass((prev) => (sorted.includes(prev) ? prev : sorted[0]));
       } else if (currentSchool.classes && currentSchool.classes.length > 0) {
-        setClassesList(currentSchool.classes);
-        setSelectedClass(currentSchool.classes[0]);
+        const sorted = sortClasses(currentSchool.classes);
+        setClassesList(sorted);
+        setSelectedClass(sorted[0]);
       }
     });
   }, [currentSchoolId, currentSchool]);

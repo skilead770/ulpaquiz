@@ -1,5 +1,16 @@
 import React, { useEffect } from 'react';
-import { Sparkles, X, Trophy } from 'lucide-react';
+import {
+  Sparkles,
+  X,
+  Trophy,
+  Award,
+  Crown,
+  Gift,
+  Star,
+  BookOpen,
+  Bookmark,
+  Heart,
+} from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PrizeMilestone } from '../types';
 import { useTenant } from '../context/SchoolContext';
@@ -8,6 +19,31 @@ interface MilestoneModalProps {
   milestone: PrizeMilestone;
   onClose: () => void;
 }
+
+const renderMilestoneIcon = (iconName?: string) => {
+  const iconProps = { className: "w-10 h-10 sm:w-12 sm:h-12 animate-bounce" };
+  switch (iconName) {
+    case 'Crown':
+      return <Crown {...iconProps} />;
+    case 'Award':
+      return <Award {...iconProps} />;
+    case 'Gift':
+      return <Gift {...iconProps} />;
+    case 'Star':
+      return <Star {...iconProps} />;
+    case 'Sparkles':
+      return <Sparkles {...iconProps} />;
+    case 'BookOpen':
+      return <BookOpen {...iconProps} />;
+    case 'Bookmark':
+      return <Bookmark {...iconProps} />;
+    case 'Heart':
+      return <Heart {...iconProps} />;
+    case 'Trophy':
+    default:
+      return <Trophy {...iconProps} />;
+  }
+};
 
 export const MilestoneModal: React.FC<MilestoneModalProps> = ({
   milestone,
@@ -36,9 +72,9 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
           <X className="w-4 h-4" />
         </button>
 
-        {/* Big Trophy Badge */}
+        {/* Big Milestone Badge */}
         <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-300 text-white flex items-center justify-center shadow-xl shadow-amber-500/40 relative">
-          <Trophy className="w-10 h-10 sm:w-12 sm:h-12 animate-bounce" />
+          {renderMilestoneIcon(milestone.iconName)}
           <div className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
             אבן דרך!
           </div>
@@ -62,7 +98,7 @@ export const MilestoneModal: React.FC<MilestoneModalProps> = ({
         <div className="bg-amber-100/80 border border-amber-200 p-3.5 sm:p-4 rounded-2xl text-xs text-amber-900 font-bold flex items-center gap-2 text-right">
           <Sparkles className="w-5 h-5 text-amber-600 shrink-0" />
           <span>
-            צוות ה{genderText.institutionType} גאה בך על ההתמדה והלימוד היומי. הפרס האישי מחכה לך {isBoys ? 'בחדר המורים / במזכירות' : 'בחדר המורות'}!
+            צוות ה{genderText.institutionType} גאה בך על ההתמדה והלימוד היומי! פרטי חלוקת הפרס יימסרו על ידי צוות ה{genderText.institutionType}.
           </span>
         </div>
 

@@ -3,7 +3,9 @@
     "default": "ulpaquiz",
     "prod": "ulpaquiz",
     "staging": "ulpaquiz-staging",
-    "ulpa": "ulpaquiz"
+    "ulpa": "ulpaquiz",
+    "halyom": "halyom",
+    "halyom-staging": "halyom-staging"
   },
   "targets": {},
   "etags": {}

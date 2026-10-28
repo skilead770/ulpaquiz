@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight, Key, Check } from 'lucide-react';
-import { GradeType, Student } from '../types';
-import { registerStudentApi, validateInvitationCodeApi } from '../lib/api';
+import { UserPlus, CheckCircle2, Clock, ShieldAlert, Sparkles, BookOpen, ArrowRight, Key, Check, GraduationCap } from 'lucide-react';
+import { GradeType, Student, DEFAULT_CLASSES, inferGradeFromClass, sortClasses } from '../types';
+import { registerStudentApi, validateInvitationCodeApi, fetchClassesApi } from '../lib/api';
 import { useTenant } from '../context/SchoolContext';
 
 interface RegisterPageProps {
@@ -19,6 +19,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [fullName, setFullName] = useState('');
   const [grade, setGrade] = useState<GradeType>('ט');
   const [className, setClassName] = useState(currentSchool.classes?.[0] || "ט'1");
+  const [classesList, setClassesList] = useState<string[]>(() =>
+    sortClasses(currentSchool.classes?.length ? currentSchool.classes : DEFAULT_CLASSES)
+  );
   const [username, setUsername] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [invitationValidInfo, setInvitationValidInfo] = useState<{
@@ -32,6 +35,18 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [registeredStudent, setRegisteredStudent] = useState<Student | null>(null);
   const [isAutoApprovedResult, setIsAutoApprovedResult] = useState(false);
+
+  // Load available classes from server/Firestore
+  useEffect(() => {
+    fetchClassesApi().then((list) => {
+      if (list && list.length > 0) {
+        const sorted = sortClasses(list);
+        setClassesList(sorted);
+        setClassName((prev) => (sorted.includes(prev) ? prev : sorted[0]));
+        setGrade(inferGradeFromClass(sorted[0]));
+      }
+    });
+  }, []);
 
   // Read invite query param from URL if present
   useEffect(() => {
@@ -59,8 +74,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         });
         if (res.invitation.className && res.invitation.className !== 'כללית') {
           setClassName(res.invitation.className);
-        }
-        if (res.invitation.grade) {
+          setGrade(res.invitation.grade || inferGradeFromClass(res.invitation.className));
+        } else if (res.invitation.grade) {
           setGrade(res.invitation.grade);
         }
       } else {
@@ -309,39 +324,31 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
-                    שכבה <span className="text-rose-500">*</span>
-                  </label>
+              <div>
+                <label className="block text-xs font-extrabold text-amber-950 mb-1.5 flex items-center gap-1.5">
+                  <GraduationCap className="w-4 h-4 text-amber-700" />
+                  <span>כיתה</span>
+                  <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
                   <select
-                    value={grade}
-                    onChange={(e) => {
-                      const newG = e.target.value as GradeType;
-                      setGrade(newG);
-                      setClassName(`${newG}'1`);
-                    }}
-                    className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
-                  >
-                    <option value="ט">שכבת ט'</option>
-                    <option value="י">שכבת י'</option>
-                    <option value="יא">שכבת יא'</option>
-                    <option value="יב">שכבת יב'</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-amber-950 mb-1.5">
-                    כיתה <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="לדוגמה: ט'1, י'2"
                     value={className}
-                    onChange={(e) => setClassName(e.target.value)}
-                    className="w-full p-3 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all"
-                  />
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setClassName(val);
+                      setGrade(inferGradeFromClass(val));
+                    }}
+                    className="w-full p-3 pl-9 rounded-2xl border border-amber-200 bg-amber-50/30 text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-hidden transition-all shadow-xs cursor-pointer appearance-none"
+                  >
+                    {classesList.map((c) => (
+                      <option key={c} value={c}>
+                        כיתה {c}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-700 text-xs font-bold">
+                    ▼
+                  </div>
                 </div>
               </div>
 
