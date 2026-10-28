@@ -1961,36 +1961,58 @@ export async function deleteManagerApi(
 // School Classes API (Admin & Registration)
 // ==========================================
 
+async function fetchActiveStudentClasses(schoolId: string = 'shvut-rachel'): Promise<string[]> {
+  try {
+    const publicStudents = await fetchPublicStudentSummaries(false, schoolId);
+    return Array.from(
+      new Set(
+        publicStudents
+          .map((s) => (s.className || '').trim())
+          .filter(Boolean)
+      )
+    );
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promise<string[]> {
+  const activeStudentClasses = await fetchActiveStudentClasses(schoolId);
+
   try {
     if (schoolId !== 'shvut-rachel') {
       const schoolSnap = await getDoc(doc(db, 'schools', schoolId));
       if (schoolSnap.exists()) {
         const cData = schoolSnap.data();
         if (cData && Array.isArray(cData.classes) && cData.classes.length > 0) {
-          return cData.classes;
+          return sortClasses(
+            Array.from(new Set([...cData.classes, ...activeStudentClasses])).filter(Boolean)
+          );
         }
       }
       const defSchool = DEFAULT_SCHOOLS.find((s) => s.id === schoolId);
       if (defSchool && defSchool.classes.length > 0) {
-        return defSchool.classes;
+        return sortClasses(
+          Array.from(new Set([...defSchool.classes, ...activeStudentClasses])).filter(Boolean)
+        );
       }
     }
 
-    const snap = await getDocs(collection(db, 'settings'));
-    let found: string[] | null = null;
-    snap.forEach((d) => {
-      if (d.id === 'classes') {
-        const cData = d.data();
-        if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
-          found = cData.list;
-        }
+    const classesSnap = await getDoc(doc(db, 'settings', 'classes'));
+    if (classesSnap.exists()) {
+      const cData = classesSnap.data();
+      if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
+        return sortClasses(
+          Array.from(new Set([...cData.list, ...activeStudentClasses])).filter(Boolean)
+        );
       }
-    });
-    if (found) return sortClasses(found);
+    }
 
-    await setDoc(doc(db, 'settings', 'classes'), { list: sortClasses(DEFAULT_CLASSES) });
-    return sortClasses(DEFAULT_CLASSES);
+    const initialClasses = sortClasses(
+      Array.from(new Set([...DEFAULT_CLASSES, ...activeStudentClasses])).filter(Boolean)
+    );
+    await setDoc(doc(db, 'settings', 'classes'), { list: initialClasses });
+    return initialClasses;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
   }
@@ -2000,7 +2022,9 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
     if (res.ok) {
       const data = await parseJsonResponse(res);
       if (Array.isArray(data.classes) && data.classes.length > 0) {
-        return sortClasses(data.classes);
+        return sortClasses(
+          Array.from(new Set([...data.classes, ...activeStudentClasses])).filter(Boolean)
+        );
       }
     }
   } catch (e) {
@@ -2008,7 +2032,11 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
   }
 
   const defSchool = DEFAULT_SCHOOLS.find((s) => s.id === schoolId);
-  return sortClasses(defSchool ? defSchool.classes : DEFAULT_CLASSES);
+  return sortClasses(
+    Array.from(
+      new Set([...(defSchool ? defSchool.classes : DEFAULT_CLASSES), ...activeStudentClasses])
+    ).filter(Boolean)
+  );
 }
 
 export async function addClassApi(name: string, schoolId: string = 'shvut-rachel'): Promise<string[]> {

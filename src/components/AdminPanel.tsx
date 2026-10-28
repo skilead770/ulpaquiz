@@ -70,6 +70,7 @@ import {
   fetchClassesApi,
   addClassApi,
   deleteClassApi,
+  updateClassesApi,
   resetStudentQuizSubmissionApi,
   resetClassOrGradeScoreApi,
   savePrizeMilestonesApi,
@@ -602,15 +603,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isAddingClass, setIsAddingClass] = useState(false);
   const [classMsg, setClassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [classesLoaded, setClassesLoaded] = useState(false);
+
   React.useEffect(() => {
+    setClassesLoaded(false);
     fetchClassesApi(currentSchoolId).then((list) => {
       if (list && list.length > 0) {
         setClassesList(sortClasses(list));
       } else if (currentSchool.classes && currentSchool.classes.length > 0) {
         setClassesList(sortClasses(currentSchool.classes));
       }
+      setClassesLoaded(true);
     });
   }, [currentSchoolId, currentSchool.classes]);
+
+  React.useEffect(() => {
+    if (!classesLoaded || students.length === 0) return;
+    const studentClasses = Array.from(
+      new Set(students.map((s) => (s.className || '').trim()).filter(Boolean))
+    );
+    const missingClasses = studentClasses.filter((cls) => !classesList.includes(cls));
+    if (missingClasses.length > 0) {
+      const merged = sortClasses(Array.from(new Set([...classesList, ...missingClasses])));
+      setClassesList(merged);
+      updateClassesApi(merged, currentSchoolId).catch((err) => {
+        console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
+      });
+    }
+  }, [classesLoaded, students, classesList, currentSchoolId]);
 
   const handleAddClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -631,10 +651,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleDeleteClass = async (classNameToDelete: string) => {
     const studentsInClass = students.filter((s) => s.className === classNameToDelete).length;
-    let confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
     if (studentsInClass > 0) {
-      confirmMsg += `\nשים לב: ישנם/ן ${studentsInClass} ${genderText.students} המשויכים/ות כרגע לכיתה זו.`;
+      setClassMsg({
+        type: 'error',
+        text: `לא ניתן למחוק את הכיתה "${classNameToDelete}" כל עוד משויכים/ות אליה ${studentsInClass} ${genderText.students} רשומים/ות.`,
+      });
+      return;
     }
+    const confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
     if (confirm(confirmMsg)) {
       try {
         const updated = await deleteClassApi(classNameToDelete, currentSchoolId);
@@ -4892,7 +4916,7 @@ ${targetHalacha.content}
                   <h3 className="text-xl font-extrabold text-amber-950 font-['Heebo'] flex items-center gap-2">
                     <span>ניהול כיתות ה{genderText.institutionType}</span>
                     <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs px-2.5 py-0.5 rounded-full font-bold">
-                      {classesList.length} כיתות פעילות
+                      {uniqueClasses.length} כיתות פעילות
                     </span>
                   </h3>
                   <p className="text-xs text-amber-800">
@@ -4965,7 +4989,7 @@ ${targetHalacha.content}
                   (s) => !s.managerParticipation && ((s.grade || '').trim() === g || inferGradeFromClass(s.className || '') === g)
                 );
                 const gPoints = gStudents.reduce((sum, s) => sum + (s.points || 0), 0);
-                const gClasses = classesList.filter((cls) => inferGradeFromClass(cls) === g);
+                const gClasses = uniqueClasses.filter((cls) => inferGradeFromClass(cls) === g);
 
                 return (
                   <div
@@ -5025,7 +5049,7 @@ ${targetHalacha.content}
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {classesList.map((cls) => {
+              {uniqueClasses.map((cls) => {
                 const clsStudents = students.filter((s) => s.className === cls && !s.managerParticipation);
                 const count = clsStudents.length;
                 const clsPoints = clsStudents.reduce((sum, s) => sum + (s.points || 0), 0);

@@ -61,7 +61,7 @@ export const DEFAULT_SCHOOLS: School[] = [
       welcomeSubtitle: 'לימוד יומי, צבירת נקודות ופרסים לאולפנה',
     },
     adminEmails: ['skilead770@gmail.com'],
-    classes: ["ט'1", "ט'2", "י'1", "י'2", "יא'1", "יא'2", "יב'1", "יב'2"],
+    classes: ["ט'1", "ט'2", "ט'3", "ט'4", "ט'5", "י'1", "י'2", "י'3", "יא'1", "יא'2", "יא'3", "יב'1", "יב'2", "יב'3"],
     createdAt: '2026-09-01T00:00:00Z',
     isActive: true,
   },
