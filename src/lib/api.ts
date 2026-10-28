@@ -1897,7 +1897,7 @@ export async function fetchClassesApi(): Promise<string[]> {
       const cData = classesSnap.data();
       if (cData && Array.isArray(cData.list) && cData.list.length > 0) {
         return sortClasses(
-          Array.from(new Set([...cData.list, ...activeStudentClasses])).filter(Boolean)
+          Array.from(new Set([...DEFAULT_CLASSES, ...cData.list, ...activeStudentClasses])).filter(Boolean)
         );
       }
     }

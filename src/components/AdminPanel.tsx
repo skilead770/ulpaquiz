@@ -581,6 +581,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [classMsg, setClassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [classesLoaded, setClassesLoaded] = useState(false);
+  const hasSyncedClassesRef = React.useRef(false);
 
   React.useEffect(() => {
     fetchClassesApi().then((list) => {
@@ -591,13 +592,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   React.useEffect(() => {
     if (!classesLoaded || students.length === 0) return;
-    const studentClasses = Array.from(
-      new Set(students.map((s) => (s.className || '').trim()).filter(Boolean))
-    );
-    const missingClasses = studentClasses.filter((cls) => !classesList.includes(cls));
+    const expectedClasses = Array.from(
+      new Set([
+        ...DEFAULT_CLASSES,
+        ...classesList,
+        ...students.map((s) => (s.className || '').trim()),
+      ])
+    ).filter(Boolean);
+    const merged = sortClasses(expectedClasses);
+    const missingClasses = merged.filter((cls) => !classesList.includes(cls));
     if (missingClasses.length > 0) {
-      const merged = sortClasses(Array.from(new Set([...classesList, ...missingClasses])));
       setClassesList(merged);
+    }
+    if (!hasSyncedClassesRef.current || missingClasses.length > 0) {
+      hasSyncedClassesRef.current = true;
       updateClassesApi(merged).catch((err) => {
         console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
       });
