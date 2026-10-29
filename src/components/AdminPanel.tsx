@@ -53,7 +53,6 @@ import {
 } from '../types';
 import { SUPER_ADMIN_EMAIL } from '../lib/config';
 import { auth } from '../lib/firebaseClient';
-import { DEFAULT_PRIZE_MILESTONES } from '../data/seedData';
 import {
   saveHalachaApi,
   deleteHalachaApi,
@@ -65,18 +64,10 @@ import {
   approveStudentApi,
   rejectStudentApi,
   fetchManagersApi,
-  addManagerApi,
-  deleteManagerApi,
   fetchClassesApi,
-  addClassApi,
-  deleteClassApi,
   updateClassesApi,
   resetStudentQuizSubmissionApi,
   resetClassOrGradeScoreApi,
-  savePrizeMilestonesApi,
-  getPrizeMilestones,
-  getDailyQuizDedicationApi,
-  saveDailyQuizDedicationApi,
   subscribeToCalendarAnnotations,
   saveCalendarAnnotationApi,
   fetchQuestionSuggestionsApi,
@@ -107,6 +98,7 @@ interface AdminPanelProps {
   onRefreshData: () => void;
   onManagerQuiz: () => Promise<void>;
   onDailyDedicationChange: (name: string) => void;
+  dailyDedication?: string;
 }
 
 import {
@@ -141,6 +133,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshData,
   onManagerQuiz,
   onDailyDedicationChange,
+  dailyDedication = '',
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
     'halachot' | 'hebrew-date' | 'students' | 'results' | 'prizes' | 'managers' | 'classes' | 'dedication' | 'suggestions'
@@ -372,9 +365,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // School Classes Management State
   const [classesList, setClassesList] = useState<string[]>(() => sortClasses(DEFAULT_CLASSES));
-  const [newClassName, setNewClassName] = useState('');
-  const [isAddingClass, setIsAddingClass] = useState(false);
-  const [classMsg, setClassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [classesLoaded, setClassesLoaded] = useState(false);
   const hasSyncedClassesRef = React.useRef(false);
@@ -407,44 +397,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       });
     }
   }, [classesLoaded, students, classesList]);
-
-  const handleAddClass = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newClassName.trim()) return;
-    setIsAddingClass(true);
-    setClassMsg(null);
-    try {
-      const updated = await addClassApi(newClassName.trim());
-      setClassesList(updated);
-      setNewClassName('');
-      setClassMsg({ type: 'success', text: `הכיתה "${newClassName.trim()}" נוספה בהצלחה!` });
-    } catch (err: any) {
-      setClassMsg({ type: 'error', text: err.message || 'שגיאה בהוספת כיתה' });
-    } finally {
-      setIsAddingClass(false);
-    }
-  };
-
-  const handleDeleteClass = async (classNameToDelete: string) => {
-    const studentsInClass = students.filter((s) => s.className === classNameToDelete).length;
-    if (studentsInClass > 0) {
-      setClassMsg({
-        type: 'error',
-        text: `לא ניתן למחוק את הכיתה "${classNameToDelete}" כל עוד משויכות אליה ${studentsInClass} תלמידות רשומות.`,
-      });
-      return;
-    }
-    const confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
-    if (confirm(confirmMsg)) {
-      try {
-        const updated = await deleteClassApi(classNameToDelete);
-        setClassesList(updated);
-        setClassMsg({ type: 'success', text: `הכיתה "${classNameToDelete}" הוסרה בהצלחה!` });
-      } catch (err: any) {
-        setClassMsg({ type: 'error', text: err.message || 'שגיאה במחיקת כיתה' });
-      }
-    }
-  };
 
   // Class & Grade Score Reset State
   interface ScoreResetTarget {
@@ -543,99 +495,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Managers State
   const [managers, setManagers] = useState<Manager[]>([]);
-  const [newManagerEmail, setNewManagerEmail] = useState('');
-  const [newManagerName, setNewManagerName] = useState('');
-  const [isAddingManager, setIsAddingManager] = useState(false);
-  const [managerMsg, setManagerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [isStartingManagerQuiz, setIsStartingManagerQuiz] = useState(false);
   const [managerQuizError, setManagerQuizError] = useState<string | null>(null);
-  const [dailyQuizDedication, setDailyQuizDedication] = useState('');
-  const [isLoadingDailyQuizDedication, setIsLoadingDailyQuizDedication] = useState(true);
-  const [isSavingDailyQuizDedication, setIsSavingDailyQuizDedication] = useState(false);
-  const [dailyQuizDedicationMessage, setDailyQuizDedicationMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
-
-  React.useEffect(() => {
-    let active = true;
-    getDailyQuizDedicationApi()
-      .then((name) => {
-        if (active) setDailyQuizDedication(name);
-      })
-      .catch((error: unknown) => {
-        console.error('[Firestore] Could not load the daily quiz dedication:', error);
-        if (active) {
-          setDailyQuizDedicationMessage({
-            type: 'error',
-            text: 'לא ניתן לטעון את הקדשת החידון. אפשר לנסות לרענן את הדף.',
-          });
-        }
-      })
-      .finally(() => {
-        if (active) setIsLoadingDailyQuizDedication(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const handleSaveDailyQuizDedication = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setIsSavingDailyQuizDedication(true);
-    setDailyQuizDedicationMessage(null);
-    try {
-      const savedName = await saveDailyQuizDedicationApi(dailyQuizDedication);
-      setDailyQuizDedication(savedName);
-      onDailyDedicationChange(savedName);
-      setDailyQuizDedicationMessage({
-        type: 'success',
-        text: savedName ? 'הקדשת החידון נשמרה בהצלחה.' : 'ההקדשה הוסרה.',
-      });
-    } catch (error) {
-      console.error('[Firestore] Could not save the daily quiz dedication:', error);
-      setDailyQuizDedicationMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'לא ניתן לשמור את הקדשת החידון.',
-      });
-    } finally {
-      setIsSavingDailyQuizDedication(false);
-    }
-  };
-
   React.useEffect(() => {
     fetchManagersApi().then((list) => setManagers(list));
   }, []);
 
-  const handleAddManager = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newManagerEmail.trim()) return;
-    setIsAddingManager(true);
-    setManagerMsg(null);
-    try {
-      const res = await addManagerApi(newManagerEmail.trim(), newManagerName.trim());
-      setManagers(res.managers);
-      setNewManagerEmail('');
-      setNewManagerName('');
-      setManagerMsg({ type: 'success', text: 'מנהל/ת חדש/ה נוסף/ה בהצלחה למערכת!' });
-    } catch (err: any) {
-      setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהוספת מנהל' });
-    } finally {
-      setIsAddingManager(false);
-    }
-  };
-
-  const handleDeleteManager = async (email: string) => {
-    if (confirm(`האם להסיר את הרשאות הניהול מכתובת ${email}?`)) {
-      try {
-        const res = await deleteManagerApi(email);
-        setManagers(res.managers);
-        setManagerMsg({ type: 'success', text: 'הרשאות הניהול הוסרו בהצלחה' });
-      } catch (err: any) {
-        setManagerMsg({ type: 'error', text: err.message || 'שגיאה בהסרת מנהל' });
-      }
-    }
-  };
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleStartManagerQuiz = async () => {
     setIsStartingManagerQuiz(true);
@@ -646,103 +513,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setManagerQuizError(err?.message || 'לא ניתן לפתוח את החידון');
     } finally {
       setIsStartingManagerQuiz(false);
-    }
-  };
-
-  const [prizeMilestones, setPrizeMilestones] = useState<PrizeMilestone[]>(DEFAULT_PRIZE_MILESTONES);
-  const [prizeSaveError, setPrizeSaveError] = useState<string | null>(null);
-  const [isSavingPrizes, setIsSavingPrizes] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  React.useEffect(() => {
-    let active = true;
-    getPrizeMilestones().then((milestones) => {
-      if (active) {
-        setPrizeMilestones(milestones.length > 0 ? milestones : DEFAULT_PRIZE_MILESTONES);
-      }
-    }).catch(() => {
-      setPrizeMilestones(DEFAULT_PRIZE_MILESTONES);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const handlePrizeMilestoneChange = (
-    index: number,
-    field: 'points' | 'title' | 'rewardDescription' | 'iconName',
-    value: string | number
-  ) => {
-    setPrizeMilestones((prev) => prev.map((m, i) => {
-      if (i !== index) return m;
-      if (field === 'points') {
-        return { ...m, points: Math.max(0, Number(value) || 0) };
-      }
-      return { ...m, [field]: String(value) };
-    }));
-  };
-
-  const handleAddPrizeMilestone = () => {
-    const maxPoints = prizeMilestones.length > 0
-      ? Math.max(...prizeMilestones.map((m) => Number(m.points) || 0))
-      : 0;
-    const nextPoints = maxPoints > 0 ? maxPoints + 25 : 10;
-    setPrizeMilestones((prev) => [
-      ...prev,
-      {
-        points: nextPoints,
-        title: '',
-        rewardDescription: '',
-        iconName: 'Gift',
-      },
-    ]);
-  };
-
-  const handleDeletePrizeMilestone = (index: number) => {
-    if (prizeMilestones.length <= 1) {
-      alert('חייב להישאר לפחות יעד פרס אחד מוגדר במערכת');
-      return;
-    }
-    const target = prizeMilestones[index];
-    const name = target.title || `${target.points} נקודות`;
-    if (window.confirm(`האם את בטוחה שברצונך למחוק את יעד הפרס "${name}"?`)) {
-      setPrizeMilestones((prev) => prev.filter((_, i) => i !== index));
-    }
-  };
-
-  const handleResetToDefaultPrizes = () => {
-    if (window.confirm('האם לאפס את רשימת הפרסים לברירת המחדל של המערכת?')) {
-      setPrizeMilestones(DEFAULT_PRIZE_MILESTONES);
-    }
-  };
-
-  const handleSavePrizeMilestones = async () => {
-    setIsSavingPrizes(true);
-    setPrizeSaveError(null);
-    try {
-      const normalized = [...prizeMilestones]
-        .map((m) => ({
-          ...m,
-          points: Math.max(0, Number(m.points) || 0),
-          title: (m.title || '').trim(),
-          rewardDescription: (m.rewardDescription || '').trim(),
-          iconName: (m.iconName || 'Award').trim(),
-        }))
-        .filter((m) => m.title && m.rewardDescription)
-        .sort((a, b) => a.points - b.points);
-
-      if (normalized.length === 0) {
-        throw new Error('יש להזין לפחות פרס אחד תקין עם כותרת ותיאור פרס');
-      }
-
-      await savePrizeMilestonesApi(normalized);
-      setPrizeMilestones(normalized);
-      await onRefreshData();
-      alert('יעדי הפרסים נשמרו בהצלחה!');
-    } catch (err: any) {
-      setPrizeSaveError(err?.message || 'שגיאה בשמירת פרסים');
-    } finally {
-      setIsSavingPrizes(false);
     }
   };
 
@@ -2204,6 +1974,8 @@ ${targetHalacha.content}
           classesList={classesList}
           setInspectingSubmission={setInspectingSubmission}
           setInspectingStudentHistory={setInspectingStudentHistory}
+          onRefreshData={onRefreshData}
+          dailyQuizDedication={dailyDedication}
         />
       )}
 

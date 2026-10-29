@@ -433,6 +433,7 @@ export default function App() {
               onRefreshData={loadData}
               onManagerQuiz={handleManagerQuiz}
               onDailyDedicationChange={setDailyQuizDedication}
+              dailyDedication={dailyQuizDedication}
             />
           </React.Suspense>
         )}
