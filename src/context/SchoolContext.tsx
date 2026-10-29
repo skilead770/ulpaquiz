@@ -49,13 +49,20 @@ export const SchoolProvider: React.FC<SchoolProviderProps> = ({ children }) => {
             ...(d.data() as Omit<School, 'id'>),
           }));
 
-          // Ensure default schools are present if not in Firestore yet
+          // Seed any default school that isn't in Firestore yet, then use Firestore as source of truth
           const merged = [...loaded];
+          const seedPromises: Promise<void>[] = [];
           for (const def of DEFAULT_SCHOOLS) {
             if (!merged.some((s) => s.id === def.id)) {
               merged.push(def);
+              seedPromises.push(
+                setDoc(doc(db, 'schools', def.id), def).catch((err) =>
+                  console.warn(`[SchoolContext] Could not seed school ${def.id}:`, err)
+                )
+              );
             }
           }
+          if (seedPromises.length > 0) void Promise.all(seedPromises);
           setSchools(merged);
         }
       } catch (err) {
