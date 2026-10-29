@@ -618,19 +618,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [currentSchoolId, currentSchool.classes]);
 
   React.useEffect(() => {
-    if (!classesLoaded || students.length === 0) return;
-    const studentClasses = Array.from(
-      new Set(students.map((s) => (s.className || '').trim()).filter(Boolean))
-    );
+    if (!classesLoaded) return;
+    const studentClasses = students.map((s) => (s.className || '').trim()).filter(Boolean);
     const missingClasses = studentClasses.filter((cls) => !classesList.includes(cls));
-    if (missingClasses.length > 0) {
-      const merged = sortClasses(Array.from(new Set([...classesList, ...missingClasses])));
-      setClassesList(merged);
-      updateClassesApi(merged, currentSchoolId).catch((err) => {
-        console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
-      });
-    }
-  }, [classesLoaded, students, classesList, currentSchoolId]);
+    if (missingClasses.length === 0) return;
+    const merged = sortClasses(Array.from(new Set([...classesList, ...studentClasses])));
+    setClassesList(merged);
+    updateClassesApi(merged, currentSchoolId).catch((err) => {
+      console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classesLoaded, students, currentSchoolId]);
 
   const handleAddClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -651,14 +649,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleDeleteClass = async (classNameToDelete: string) => {
     const studentsInClass = students.filter((s) => s.className === classNameToDelete).length;
-    if (studentsInClass > 0) {
-      setClassMsg({
-        type: 'error',
-        text: `לא ניתן למחוק את הכיתה "${classNameToDelete}" כל עוד משויכים/ות אליה ${studentsInClass} ${genderText.students} רשומים/ות.`,
-      });
-      return;
-    }
-    const confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
+    const confirmMsg = studentsInClass > 0
+      ? `לכיתה "${classNameToDelete}" משויכים/ות ${studentsInClass} ${genderText.students} רשומים/ות.\nמחיקת הכיתה לא תסיר אותם/ן — הם/ן יישארו עם שם הכיתה הישן עד עדכון ידני.\nהאם להמשיך?`
+      : `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
     if (confirm(confirmMsg)) {
       try {
         const updated = await deleteClassApi(classNameToDelete, currentSchoolId);
@@ -2099,7 +2092,7 @@ ${targetHalacha.content}
         || a.fullName.localeCompare(b.fullName, 'he');
     });
 
-  const uniqueClasses = sortClasses(Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean));
+  const uniqueClasses = sortClasses(Array.from(new Set([...classesList, ...students.map((s) => (s.className || '').trim())])).filter(Boolean));
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">

@@ -1976,6 +1976,27 @@ async function fetchActiveStudentClasses(schoolId: string = 'shvut-rachel'): Pro
   }
 }
 
+// Reads the raw stored class list for a school without merging student classes.
+async function readStoredClassList(schoolId: string): Promise<string[]> {
+  if (schoolId !== 'shvut-rachel') {
+    const schoolSnap = await getDoc(doc(db, 'schools', schoolId));
+    if (schoolSnap.exists()) {
+      const cData = schoolSnap.data();
+      if (Array.isArray(cData?.classes)) return cData.classes as string[];
+    }
+    const defSchool = DEFAULT_SCHOOLS.find((s) => s.id === schoolId);
+    return defSchool ? [...defSchool.classes] : [...DEFAULT_CLASSES];
+  }
+  const classesSnap = await getDoc(doc(db, 'settings', 'classes'));
+  if (classesSnap.exists()) {
+    const cData = classesSnap.data();
+    if (Array.isArray(cData?.list)) return cData.list as string[];
+  }
+  return [...DEFAULT_CLASSES];
+}
+
+let seedAttempted = false;
+
 export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promise<string[]> {
   const activeStudentClasses = await fetchActiveStudentClasses(schoolId);
 
@@ -2011,7 +2032,12 @@ export async function fetchClassesApi(schoolId: string = 'shvut-rachel'): Promis
     const initialClasses = sortClasses(
       Array.from(new Set([...DEFAULT_CLASSES, ...activeStudentClasses])).filter(Boolean)
     );
-    await setDoc(doc(db, 'settings', 'classes'), { list: initialClasses });
+    if (!seedAttempted) {
+      seedAttempted = true;
+      setDoc(doc(db, 'settings', 'classes'), { list: initialClasses }).catch((err) =>
+        console.warn('[Firestore] Could not seed classes doc:', err)
+      );
+    }
     return initialClasses;
   } catch (err) {
     console.warn('[Firestore Fallback] Error fetching classes:', err);
@@ -2044,17 +2070,19 @@ export async function addClassApi(name: string, schoolId: string = 'shvut-rachel
   if (!clean) throw new Error('נא להזין שם כיתה');
 
   try {
-    const current = await fetchClassesApi(schoolId);
-    if (!current.includes(clean)) {
-      const updated = sortClasses([...current, clean]);
+    const stored = await readStoredClassList(schoolId);
+    if (!stored.includes(clean)) {
+      const updated = sortClasses([...stored, clean]);
       if (schoolId !== 'shvut-rachel') {
         await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
       } else {
         await setDoc(doc(db, 'settings', 'classes'), { list: updated });
       }
-      return updated;
+      const activeStudentClasses = await fetchActiveStudentClasses(schoolId);
+      return sortClasses(Array.from(new Set([...updated, ...activeStudentClasses])).filter(Boolean));
     }
-    return current;
+    const activeStudentClasses = await fetchActiveStudentClasses(schoolId);
+    return sortClasses(Array.from(new Set([...stored, ...activeStudentClasses])).filter(Boolean));
   } catch (err) {
     console.warn('[Firestore Fallback] Error saving classes:', err);
   }
@@ -2073,31 +2101,29 @@ export async function addClassApi(name: string, schoolId: string = 'shvut-rachel
     console.info('[API] Falling back to seeded Firestore for addClassApi');
   }
 
-  const current = await fetchClassesApi(schoolId);
-  if (!current.includes(clean)) {
-    const updated = sortClasses([...current, clean]);
-    if (schoolId !== 'shvut-rachel') {
-      await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
-    } else {
-      await setDoc(doc(db, 'settings', 'classes'), { list: updated });
-    }
-    return updated;
+  const stored = await readStoredClassList(schoolId);
+  const updated = sortClasses(Array.from(new Set([...stored, clean])).filter(Boolean));
+  if (schoolId !== 'shvut-rachel') {
+    await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
+  } else {
+    await setDoc(doc(db, 'settings', 'classes'), { list: updated });
   }
-  return current;
+  return updated;
 }
 
 export async function deleteClassApi(name: string, schoolId: string = 'shvut-rachel'): Promise<string[]> {
   const clean = name.trim();
 
   try {
-    const current = await fetchClassesApi(schoolId);
-    const updated = sortClasses(current.filter((c) => c !== clean));
+    const stored = await readStoredClassList(schoolId);
+    const updated = sortClasses(stored.filter((c) => c !== clean));
     if (schoolId !== 'shvut-rachel') {
       await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
     } else {
       await setDoc(doc(db, 'settings', 'classes'), { list: updated });
     }
-    return updated;
+    const activeStudentClasses = await fetchActiveStudentClasses(schoolId);
+    return sortClasses(Array.from(new Set([...updated, ...activeStudentClasses])).filter(Boolean));
   } catch (err) {
     console.warn('[Firestore Fallback] Error deleting class:', err);
   }
@@ -2115,8 +2141,8 @@ export async function deleteClassApi(name: string, schoolId: string = 'shvut-rac
     console.info('[API] Falling back to seeded Firestore for deleteClassApi');
   }
 
-  const current = await fetchClassesApi(schoolId);
-  const updated = sortClasses(current.filter((c) => c !== clean));
+  const stored = await readStoredClassList(schoolId);
+  const updated = sortClasses(stored.filter((c) => c !== clean));
   if (schoolId !== 'shvut-rachel') {
     await setDoc(doc(db, 'schools', schoolId), { classes: updated }, { merge: true });
   } else {
