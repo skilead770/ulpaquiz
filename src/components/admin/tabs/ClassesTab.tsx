@@ -45,14 +45,9 @@ export const ClassesTab: React.FC<ClassesTabProps> = ({
 
   const handleDeleteClass = async (classNameToDelete: string) => {
     const studentsInClass = students.filter((s) => s.className === classNameToDelete).length;
-    if (studentsInClass > 0) {
-      setClassMsg({
-        type: 'error',
-        text: `לא ניתן למחוק את הכיתה "${classNameToDelete}" כל עוד משויכות אליה ${studentsInClass} תלמידות רשומות.`,
-      });
-      return;
-    }
-    const confirmMsg = `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
+    const confirmMsg = studentsInClass > 0
+      ? `לכיתה "${classNameToDelete}" משויכות ${studentsInClass} תלמידות רשומות.\nמחיקת הכיתה לא תסיר את התלמידות — הן יישארו עם שם הכיתה הישן עד עדכון ידני.\nהאם להמשיך?`
+      : `האם למחוק את הכיתה "${classNameToDelete}" מרשימת הכיתות?`;
     if (confirm(confirmMsg)) {
       try {
         const updated = await deleteClassApi(classNameToDelete);

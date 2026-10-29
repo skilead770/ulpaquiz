@@ -75,7 +75,10 @@ export async function fetchStudents(): Promise<Student[]> {
   }
 
   try {
-    const managerSnap = await getDocs(query(collection(db, 'managers'), where('email', '==', email)));
+    const isSuperAdmin = email === SUPER_ADMIN_EMAIL.trim().toLowerCase();
+    const managerSnap = isSuperAdmin
+      ? { empty: false }
+      : await getDocs(query(collection(db, 'managers'), where('email', '==', email)));
     if (!managerSnap.empty) {
       const snap = await getDocs(collection(db, 'students'));
       return snap.docs

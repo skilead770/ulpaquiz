@@ -367,7 +367,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [classesList, setClassesList] = useState<string[]>(() => sortClasses(DEFAULT_CLASSES));
 
   const [classesLoaded, setClassesLoaded] = useState(false);
-  const hasSyncedClassesRef = React.useRef(false);
 
   React.useEffect(() => {
     fetchClassesApi().then((list) => {
@@ -377,26 +376,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, []);
 
   React.useEffect(() => {
-    if (!classesLoaded || students.length === 0) return;
-    const expectedClasses = Array.from(
-      new Set([
-        ...DEFAULT_CLASSES,
-        ...classesList,
-        ...students.map((s) => (s.className || '').trim()),
-      ])
-    ).filter(Boolean);
-    const merged = sortClasses(expectedClasses);
-    const missingClasses = merged.filter((cls) => !classesList.includes(cls));
-    if (missingClasses.length > 0) {
-      setClassesList(merged);
-    }
-    if (!hasSyncedClassesRef.current || missingClasses.length > 0) {
-      hasSyncedClassesRef.current = true;
-      updateClassesApi(merged).catch((err) => {
-        console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
-      });
-    }
-  }, [classesLoaded, students, classesList]);
+    if (!classesLoaded) return;
+    const studentClasses = students.map((s) => (s.className || '').trim()).filter(Boolean);
+    const missingClasses = studentClasses.filter((cls) => !classesList.includes(cls));
+    if (missingClasses.length === 0) return;
+    const merged = sortClasses(Array.from(new Set([...classesList, ...studentClasses])));
+    setClassesList(merged);
+    updateClassesApi(merged).catch((err) => {
+      console.warn('[AdminPanel] Failed to auto-sync student classes to settings/classes:', err);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classesLoaded, students]);
 
   // Class & Grade Score Reset State
   interface ScoreResetTarget {
@@ -1637,7 +1627,7 @@ ${targetHalacha.content}
         || a.fullName.localeCompare(b.fullName, 'he');
     });
 
-  const uniqueClasses = sortClasses(Array.from(new Set([...classesList, ...students.map((s) => s.className)])).filter(Boolean));
+  const uniqueClasses = sortClasses(Array.from(new Set([...classesList, ...students.map((s) => (s.className || '').trim())])).filter(Boolean));
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
